@@ -32,36 +32,49 @@
 {
   "scopes": {
     "tenant": [
-      "im:message.p2p_msg:readonly",
-      "im:message.group_at_msg:readonly",
-      "im:message:send_as_bot",
+      "application:application:self_manage",
+      "application:bot.basic_info:read",
+      "application:bot.menu:write",
+      "board:whiteboard:node:read",
+      "cardkit:card:read",
+      "cardkit:card:write",
+      "contact:contact.base:readonly",
+      "docs:document.comment:create",
+      "docs:document.comment:delete",
+      "docs:document.comment:read",
+      "docs:document.comment:update",
+      "docs:document.comment:write_only",
+      "docs:document.media:download",
+      "docx:document.block:convert",
       "docx:document:readonly",
       "docx:document:write_only",
-      "docs:document.media:download",
-      "board:whiteboard:node:read",
       "drive:drive.metadata:readonly",
+      "im:chat.members:bot_access",
+      "im:chat:create",
+      "im:chat:read",
+      "im:chat:update",
+      "im:message.group_at_msg.include_bot:readonly",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:message.pins:read",
+      "im:message.pins:write_only",
+      "im:message.reactions:read",
+      "im:message.reactions:write_only",
+      "im:message:readonly",
+      "im:message:send_as_bot",
+      "im:message:send_multi_users",
+      "im:message:send_sys_msg",
+      "im:message:update",
+      "im:resource",
       "wiki:node:read",
       "wiki:wiki:readonly"
     ],
-    "user": []
+    "user": [
+      "offline_access"
+    ]
   }
 }
 ```
-
-导入后可用下面的中文名称核对；批量导入不可用时，再按表格逐条搜索、勾选。
-
-| 在开放平台里搜索 | 对应权限 |
-| --- | --- |
-| 读取用户发给机器人的单聊消息 | `im:message.p2p_msg:readonly` |
-| 获取群组中用户@机器人消息 | `im:message.group_at_msg:readonly` |
-| 以应用的身分发消息 | `im:message:send_as_bot` |
-| 查看新版文档 | `docx:document:readonly` |
-| 编辑新版文档 | `docx:document:write_only` |
-| 下载云文档中的图片和附件 | `docs:document.media:download` |
-| 查看画板节点 | `board:whiteboard:node:read` |
-| 查看云空间中文件元数据 | `drive:drive.metadata:readonly` |
-| 查看知识空间节点信息 | `wiki:node:read` |
-| 查看知识库 | `wiki:wiki:readonly` |
 
 应用建好后，还要把这个机器人加进目标云文档或知识库的**协作者**。只看预览时，只读即可。希望助手把标题、摘要等信息写回飞书文档时，再给它「可编辑」。没有编辑权限也可以继续出预览，助手会把信息留在本地，不会去改你的云文档。
 
