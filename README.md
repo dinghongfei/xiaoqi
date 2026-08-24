@@ -32,46 +32,23 @@
 {
   "scopes": {
     "tenant": [
-      "application:application:self_manage",
-      "application:bot.basic_info:read",
-      "application:bot.menu:write",
-      "board:whiteboard:node:read",
-      "cardkit:card:read",
-      "cardkit:card:write",
-      "contact:contact.base:readonly",
-      "docs:document.comment:create",
-      "docs:document.comment:delete",
-      "docs:document.comment:read",
-      "docs:document.comment:update",
-      "docs:document.comment:write_only",
-      "docs:document.media:download",
-      "docx:document.block:convert",
+      "im:message.p2p_msg:readonly",
+      "im:message.group_at_msg:readonly",
+      "im:message:send_as_bot",
       "docx:document:readonly",
       "docx:document:write_only",
+      "docs:doc",
+      "docs:document.media:download",
+      "docs:permission.member:auth",
+      "board:whiteboard:node:read",
+      "drive:drive",
       "drive:drive.metadata:readonly",
-      "im:chat.members:bot_access",
-      "im:chat:create",
-      "im:chat:read",
-      "im:chat:update",
-      "im:message.group_at_msg.include_bot:readonly",
-      "im:message.group_at_msg:readonly",
-      "im:message.p2p_msg:readonly",
-      "im:message.pins:read",
-      "im:message.pins:write_only",
-      "im:message.reactions:read",
-      "im:message.reactions:write_only",
-      "im:message:readonly",
-      "im:message:send_as_bot",
-      "im:message:send_multi_users",
-      "im:message:send_sys_msg",
-      "im:message:update",
-      "im:resource",
       "wiki:node:read",
-      "wiki:wiki:readonly"
+      "wiki:wiki",
+      "sheets:spreadsheet",
+      "bitable:app"
     ],
-    "user": [
-      "offline_access"
-    ]
+    "user": []
   }
 }
 ```
