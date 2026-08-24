@@ -14,15 +14,41 @@
 
 打开 [飞书开放平台](https://open.feishu.cn/app)，创建**企业自建应用**，并开通机器人。
 
-事件与回调用**长连接**，不要去填 Webhook 网址。下面两项请全部打开，漏了后面出预览时会提示权限不足。名称请按表格里的原文搜索、勾选。
+事件与回调用**长连接**，不要去填 Webhook 网址。事件和权限都要开全，漏了后面出预览时会提示不足。
 
 **事件订阅**
+
+在应用详情里打开 **事件与回调**，搜索并订阅：
 
 | 在开放平台里搜索 | 对应事件 |
 | --- | --- |
 | 接收消息 | `im.message.receive_v1` |
 
 **权限**
+
+本助手用应用身份（机器人）收消息、回卡片、读写文档。在应用详情里打开 **权限管理**，点 **批量导入导出权限**，把下面整段 JSON 粘贴进去再申请开通。用户身份不用开，`user` 保持空列表即可。
+
+```json
+{
+  "scopes": {
+    "tenant": [
+      "im:message.p2p_msg:readonly",
+      "im:message.group_at_msg:readonly",
+      "im:message:send_as_bot",
+      "docx:document:readonly",
+      "docx:document:write_only",
+      "docs:document.media:download",
+      "board:whiteboard:node:read",
+      "drive:drive.metadata:readonly",
+      "wiki:node:read",
+      "wiki:wiki:readonly"
+    ],
+    "user": []
+  }
+}
+```
+
+导入后可用下面的中文名称核对；批量导入不可用时，再按表格逐条搜索、勾选。
 
 | 在开放平台里搜索 | 对应权限 |
 | --- | --- |
