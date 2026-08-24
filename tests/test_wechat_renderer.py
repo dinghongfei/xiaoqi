@@ -42,9 +42,42 @@ def test_restyle_keeps_semantic_html_and_absolute_images():
     assert "{{< figure" not in html
     assert "mdnice" not in html.lower()
     assert "style=" not in html
-    assert "<h1" not in html
-    assert ">标题<" not in html
+    assert "<h1" in html
+    assert "标题" in html
     assert "正文保持原意" in html
+
+
+def test_restyle_keeps_content_h1_when_not_front_matter_title():
+    md = """+++
+title = '具身智能：机器人的下一个时代'
++++
+
+开篇段落。
+
+# 一、什么是具身智能
+
+正文
+"""
+    html = restyle_markdown(md, site_base_url="http://127.0.0.1:1314")
+    assert "<h1" in html
+    assert "一、什么是具身智能" in html
+
+
+def test_restyle_drops_leading_h1_matching_front_matter_title():
+    md = """+++
+title = '测试飞书云文档转换为公众号文章'
++++
+
+# 测试飞书云文档转换为公众号文章
+
+# 一、什么是具身智能
+
+正文
+"""
+    html = restyle_markdown(md, site_base_url="http://127.0.0.1:1314")
+    assert html.count("<h1") == 1
+    assert "一、什么是具身智能" in html
+    assert "测试飞书云文档转换为公众号文章" not in html
 
 
 def test_restyle_keeps_rich_article_formats():

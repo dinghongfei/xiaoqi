@@ -56,6 +56,34 @@ def test_convert_website_writes_hugo_markdown(tmp_path: Path):
     assert result.site_preview == "http://127.0.0.1:1314/blog/hello-preview/"
 
 
+def test_prepare_hugo_body_keeps_content_h1_after_intro():
+    from parser.body_format import prepare_hugo_body
+
+    md = """开篇段落。
+
+# 一、什么是具身智能
+
+正文
+"""
+    body = prepare_hugo_body(md)
+    assert "# 一、什么是具身智能" in body
+    assert "开篇段落。" in body
+
+
+def test_prepare_hugo_body_drops_only_first_line_title_h1():
+    from parser.body_format import prepare_hugo_body
+
+    md = """# 测试飞书云文档转换为公众号文章
+
+# 一、什么是具身智能
+
+正文
+"""
+    body = prepare_hugo_body(md)
+    assert "# 测试飞书云文档转换为公众号文章" not in body
+    assert "# 一、什么是具身智能" in body
+
+
 def test_convert_website_requires_download(tmp_path: Path):
     settings = Settings(
         hugo_root=tmp_path / "site",

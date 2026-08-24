@@ -49,7 +49,7 @@ uv run python <本Skill目录>/scripts/run.py --markdown path/to/article.md --ro
 ## 行为
 
 - **不改写原文**，只换皮，并把飞书 XML 里的颜色/下划线/高亮补回来。
-- 去掉正文开头的文章标题（`#` / `<h1>`）。公众号编辑器自己有标题栏，一键复制只带章节和正文。
+- 仅当正文第一行一级标题与 front matter 的 `title` 相同，才当作文章标题去掉。正文里其它一级标题（如「# 一、…」）保留。公众号编辑器自己有标题栏。
 - `figure` → 图+注；markdown 图片的 alt 也当 caption。
 - grid 展平；video / 视频 callout 做成信息卡片，后面的封面图收进卡片。
 - 代码块保留语言，带标题时显示标题栏，并用 Pygments 做语法高亮。

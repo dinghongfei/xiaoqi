@@ -47,7 +47,7 @@ uv run python <本Skill目录>/scripts/run.py --markdown path/to/processed.md
 - 解析三列表格；校验 slug / lang / section（栏目固定 `blog`）。
 - unescape、分栏 shortcode、有序列表修复。
 - 用飞书 XML 补回颜色、下划线、高亮、代码标题、图片说明；callout 收成短代码。
-- 去掉正文开头的文档标题（页面标题用 front matter）。
+- 仅当正文第一行是一级标题时，把它当作飞书文档标题去掉（页面标题用 front matter）。正文里其它一级标题保留。
 - 写入 `site/content/{lang}/blog/{slug}.md`。
 - 更新 last-job 的 `content_path` / `site_preview`。
 - **不**构建 Hugo（交给 `deploy-local`）。

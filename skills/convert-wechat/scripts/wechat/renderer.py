@@ -55,8 +55,11 @@ _CALLOUT_SC = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _STRIKE = re.compile(r"~~(.+?)~~")
-_LEADING_H1_MD = re.compile(r"^(?:\s*\n)*#[^#\n][^\n]*(?:\n+|$)")
-_LEADING_H1_HTML = re.compile(r"^\s*<h1\b[^>]*>.*?</h1>\s*", re.IGNORECASE | re.DOTALL)
+_ATX_H1_LINE = re.compile(r"^#[^#\n](.*)$")
+_FRONT_MATTER_TITLE = re.compile(
+    r"^title\s*=\s*(['\"])(.*)\1\s*$",
+    re.MULTILINE,
+)
 _VIDEO_COVER = re.compile(
     r'(<aside class="wechat-video-card">.*?</aside>)\s*'
     r"(?:<p>)?(<figure\b.*?</figure>|<img\b[^>]*>)(?:</p>)?",
@@ -89,9 +92,39 @@ def strip_front_matter(markdown_text: str) -> str:
     return _FRONT_MATTER.sub("", markdown_text.lstrip(), count=1)
 
 
-def _strip_article_title(markdown_text: str) -> str:
-    """Drop the leading ATX title. WeChat's editor has its own title field."""
-    return _LEADING_H1_MD.sub("", markdown_text, count=1)
+def _front_matter_title(markdown_text: str) -> str:
+    match = _FRONT_MATTER_TITLE.search(markdown_text)
+    return match.group(2).strip() if match else ""
+
+
+def _strip_article_title(markdown_text: str, *, title: str = "") -> str:
+    """Drop a leading H1 only when it is the article title (original first line).
+
+    Body H1s such as「# 一、…」must be kept. WeChat already has a title field.
+    """
+    if not markdown_text:
+        return markdown_text
+    lines = markdown_text.splitlines()
+    start = 0
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    if start >= len(lines):
+        return markdown_text
+    match = _ATX_H1_LINE.match(lines[start])
+    if not match:
+        return markdown_text
+    heading = match.group(1).strip()
+    if title and heading != title:
+        return markdown_text
+    if not title:
+        return markdown_text
+    rest = lines[start + 1 :]
+    while rest and not rest[0].strip():
+        rest = rest[1:]
+    result = "\n".join(rest)
+    if markdown_text.endswith("\n") and result:
+        result += "\n"
+    return result
 
 
 def _fence_placeholder(index: int) -> str:
@@ -205,8 +238,9 @@ def restyle_markdown(
     """Turn Hugo markdown into semantic article HTML. Styles stay in the preview page."""
     if xml_text:
         markdown_text = overlay_xml_styles(markdown_text, xml_text)
+    title = _front_matter_title(markdown_text)
     text = strip_front_matter(markdown_text)
-    text = _strip_article_title(text)
+    text = _strip_article_title(text, title=title)
     text = _rewrite_callouts(text)
 
     def replace_figure(match: re.Match[str]) -> str:
@@ -269,7 +303,6 @@ def restyle_markdown(
     )
     body = _restore_fenced_code(body, code_blocks)
     body = _merge_video_covers(body)
-    body = _LEADING_H1_HTML.sub("", body, count=1)
     return f'<div class="wechat-article">{body}</div>'
 
 

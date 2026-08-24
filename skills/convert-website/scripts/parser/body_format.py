@@ -6,7 +6,7 @@ import re
 
 from parser.xml_styles import overlay_xml_styles
 
-_LEADING_H1 = re.compile(r"^(?:\s*\n)*#[^#\n][^\n]*(?:\n+|$)")
+_ATX_H1_LINE = re.compile(r"^#[^#\n].*$")
 _FENCE_TITLE = re.compile(
     r"^```([^\n`]*?)\s+title=\"([^\"]*)\"\s*$",
     re.MULTILINE,
@@ -20,8 +20,25 @@ _ATTR = re.compile(r'(\w+)="([^"]*)"')
 
 
 def strip_leading_atx_h1(body: str) -> str:
-    """Drop the document title. Hugo already renders front matter title."""
-    return _LEADING_H1.sub("", body, count=1)
+    """Drop the Feishu doc title only when it is the first line and an ATX H1.
+
+    Later H1s in the body are section headings and must be kept.
+    """
+    if not body:
+        return body
+    lines = body.splitlines()
+    start = 0
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    if start >= len(lines) or not _ATX_H1_LINE.match(lines[start]):
+        return body
+    rest = lines[start + 1 :]
+    while rest and not rest[0].strip():
+        rest = rest[1:]
+    result = "\n".join(rest)
+    if body.endswith("\n") and result:
+        result += "\n"
+    return result
 
 
 def hugoize_fence_titles(body: str) -> str:
