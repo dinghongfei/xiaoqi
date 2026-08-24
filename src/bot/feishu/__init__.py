@@ -1,0 +1,1 @@
+"""Feishu IM thin adapter."""

@@ -1,0 +1,10 @@
+{{- $title := "" -}}
+{{- with .Attributes.title }}{{ $title = . }}{{ end -}}
+{{- if $title }}
+<div class="article-code">
+  <div class="article-code__title">{{ $title }}</div>
+  {{ highlight .Inner .Type .Options }}
+</div>
+{{- else -}}
+{{ highlight .Inner .Type .Options }}
+{{- end -}}

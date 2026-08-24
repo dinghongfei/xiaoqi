@@ -1,0 +1,7 @@
+{{- $src := .Get "src" -}}
+<figure class="content-video">
+  <video controls playsinline preload="metadata" src="{{ $src | relURL }}"></video>
+  {{- with .Get "caption" -}}
+  <figcaption>{{ . }}</figcaption>
+  {{- end -}}
+</figure>

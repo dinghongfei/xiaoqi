@@ -1,0 +1,29 @@
+{{ define "main" }}
+<article class="research-post">
+  <header class="research-post__hero research-post__hero--no-image">
+    <div class="research-post__hero-overlay" aria-hidden="true"></div>
+    <div class="research-post__hero-inner">
+      <a class="research-post__back" href="{{ with .Parent }}{{ .RelPermalink }}{{ else }}{{ "/blog/" | relLangURL }}{{ end }}">
+        ← {{ if eq site.Language.Lang "en" }}Back to {{ else }}返回{{ end }}{{ with .CurrentSection }}{{ .Title }}{{ end }}
+      </a>
+      <div class="research-post__hero-content">
+        <h1 class="research-post__title">{{ .Title }}</h1>
+        <p class="research-post__meta">
+          <time datetime="{{ .Date.Format "2006-01-02" }}">{{ .Date.Format "2006-01-02" }}</time>
+          {{ with .Params.categories }}
+          <span class="research-post__meta-sep" aria-hidden="true"> · </span>
+          <span class="research-post__category">{{ delimit . " / " }}</span>
+          {{ end }}
+          {{ with .Params.author }}
+          <span class="research-post__meta-sep" aria-hidden="true"> · </span>
+          <span>{{ . }}</span>
+          {{ end }}
+        </p>
+      </div>
+    </div>
+  </header>
+  <div class="research-post__content">
+    {{ .Content }}
+  </div>
+</article>
+{{ end }}

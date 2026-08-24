@@ -1,0 +1,12 @@
+{{ define "main" }}
+<section class="research-list">
+  <header class="research-list__header">
+    <h1 class="research-list__title">{{ .Title }}</h1>
+  </header>
+  <div class="research-list__grid">
+    {{ range first 12 (where site.RegularPages "Section" "blog") }}
+    {{ partial "research-card.html" . }}
+    {{ end }}
+  </div>
+</section>
+{{ end }}

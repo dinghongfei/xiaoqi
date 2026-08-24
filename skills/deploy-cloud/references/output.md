@@ -1,0 +1,17 @@
+# 输出
+
+成功：
+
+```
+已上传 preview/ 到对象存储
+SITE_PREVIEW=...
+WECHAT_PREVIEW=...
+```
+
+未配 bucket：
+
+```
+未开通：未配置对象存储（OSS_BUCKET 为空），仅本地预览。
+```
+
+sk 错误或未提供：中文拒绝，不上传。

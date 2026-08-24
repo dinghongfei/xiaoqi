@@ -1,0 +1,3 @@
+markdown>=3.7
+pydantic-settings>=2.0
+pygments>=2.18

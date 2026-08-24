@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-label="demo cover">
+  <rect width="960" height="360" fill="#EFF6FF"/>
+  <rect x="72" y="72" width="816" height="216" rx="16" fill="#2563EB"/>
+  <text x="480" y="200" text-anchor="middle" fill="#FFFFFF" font-size="36" font-family="sans-serif">Demo</text>
+</svg>

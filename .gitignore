@@ -1,0 +1,23 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+data/**
+!data/.gitkeep
+*.egg-info/
+dist/
+build/
+site/public/
+site/resources/
+site/.hugo_build.lock
+preview/**
+!preview/.gitkeep
+
+# 安装时按本机 Agent 生成，整目录软链到 skills/；仓库只维护 skills/
+.cursor/
+.claude/
+.trae/
+.opencode/
+# Codex 发现目录（不是 .codex/skills）
+.agents/

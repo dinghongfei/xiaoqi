@@ -1,0 +1,20 @@
+<article class="research-card">
+  <a class="research-card__link" href="{{ .RelPermalink }}">
+    {{ with .Params.featured_image }}
+    <div class="research-card__media">
+      <img src="{{ . | relURL }}" alt="">
+    </div>
+    {{ else }}
+    <div class="research-card__media research-card__media--placeholder" aria-hidden="true"></div>
+    {{ end }}
+    <div class="research-card__body">
+      <p class="research-card__meta">
+        {{ .Date.Format "2006-01-02" }}
+        {{ with .Params.categories }} · {{ delimit . " / " }}{{ end }}
+      </p>
+      <h2 class="research-card__title">{{ .Title }}</h2>
+      <p class="research-card__summary">{{ .Summary | plainify }}</p>
+      <span class="research-card__more">{{ if eq site.Language.Lang "en" }}Read →{{ else }}阅读 →{{ end }}</span>
+    </div>
+  </a>
+</article>

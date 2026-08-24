@@ -1,0 +1,13 @@
+<aside class="article-callout{{ if eq (.Get "video") "true" }} article-callout--video{{ end }}">
+  <div class="article-callout__hd">
+    {{- with .Get "emoji" }}{{ . }} {{ end -}}
+    {{- if eq (.Get "video") "true" }}视频{{ else }}说明{{ end -}}
+  </div>
+  <div class="article-callout__bd">{{ .Inner | markdownify }}</div>
+  {{- with .Get "cover" }}
+  <figure class="article-callout__cover">
+    <img src="{{ . | relURL }}" alt="{{ $.Get "caption" }}">
+    {{- with $.Get "caption" }}<figcaption>{{ . }}</figcaption>{{ end }}
+  </figure>
+  {{- end }}
+</aside>
