@@ -17,6 +17,34 @@ from lark_cli.runner import (
     probe_lark_cli,
 )
 
+FULL_HELP = "Usage:\n  lark-cli --profile NAME --as bot --json\n  config  Manage config"
+CFG_HELP = "Usage: lark-cli config\n  init\n  show"
+
+
+def _full_cli_help(cmd: list[str]) -> str:
+    if "config" in cmd:
+        return CFG_HELP
+    return FULL_HELP
+
+
+def _sandbox_help(cmd: list[str]) -> str:
+    if "--profile" in cmd or "--as" in cmd:
+        return "不支持 --profile"
+    if "config" in cmd:
+        return "config 不支持"
+    return "Usage: lark-cli docs +fetch\nConfigure LARK_APP_ID"
+
+
+def _lying_help(cmd: list[str]) -> str:
+    """Help lists --profile; executing the flag is rejected."""
+    if cmd[-1:] == ["--help"] and "--profile" not in cmd and "config" not in cmd:
+        return FULL_HELP
+    if "config" in cmd:
+        return CFG_HELP
+    if "--profile" in cmd or "--as" in cmd:
+        return "不支持 --profile"
+    return FULL_HELP
+
 FULL = CliCapabilities.full()
 RESTRICTED = CliCapabilities.none()
 
@@ -173,9 +201,7 @@ def test_lark_cli_error_permission_flag():
 
 def test_probe_detects_full_help():
     probe_lark_cli.cache_clear()
-    top = "Usage:\n  lark-cli --profile NAME --as bot --json\n  config  Manage config"
-    cfg = "Usage: lark-cli config\n  init\n  show"
-    with patch("lark_cli.runner._run_help", side_effect=[top, cfg]):
+    with patch("lark_cli.runner._run_help", side_effect=_full_cli_help):
         caps = probe_lark_cli("full-cli")
     assert caps.has_profile
     assert caps.has_as
@@ -186,15 +212,51 @@ def test_probe_detects_full_help():
 
 def test_probe_restricted_help():
     probe_lark_cli.cache_clear()
-    top = "Usage: lark-cli docs +fetch\nConfigure LARK_APP_ID"
-    cfg = "config 不支持"
-    with patch("lark_cli.runner._run_help", side_effect=[top, cfg]):
+    with patch("lark_cli.runner._run_help", side_effect=_sandbox_help):
         caps = probe_lark_cli("sandbox-cli")
     assert not caps.has_profile
     assert not caps.has_as
     assert not caps.has_json
     assert not caps.has_config
     probe_lark_cli.cache_clear()
+
+
+def test_probe_help_lists_profile_but_execute_rejects():
+    probe_lark_cli.cache_clear()
+    with patch("lark_cli.runner._run_help", side_effect=_lying_help):
+        caps = probe_lark_cli("trae-cli")
+    assert not caps.has_profile
+    assert not caps.has_as
+    assert not caps.has_config
+    probe_lark_cli.cache_clear()
+
+
+def test_run_retries_when_profile_rejected_at_runtime():
+    runner = _runner(
+        capabilities=FULL,
+        app_id="cli_app",
+        app_secret="app_secret",
+    )
+    fail = MagicMock(
+        returncode=2,
+        stdout=b"",
+        stderr="不支持 --profile".encode(),
+    )
+    ok = MagicMock(
+        returncode=0,
+        stdout=b'{"ok": true, "data": {}}',
+        stderr=b"",
+    )
+    with patch("lark_cli.runner.subprocess.run", side_effect=[fail, ok]) as mock_run:
+        result = runner.run(["docs", "+fetch"])
+    assert result == {"ok": True, "data": {}}
+    assert mock_run.call_count == 2
+    first = mock_run.call_args_list[0].args[0]
+    second = mock_run.call_args_list[1].args[0]
+    assert first[:3] == ["lark-cli", "--profile", "xiaoqi"]
+    assert "--profile" not in second
+    assert "--as" not in second
+    assert mock_run.call_args_list[1].kwargs["env"]["LARK_APP_ID"] == "cli_app"
 
 
 def test_config_sync_always_passes_profile():
@@ -249,3 +311,42 @@ def test_factory_skips_config_when_probe_has_no_config():
         with patch("feishu.factory.ensure_lark_cli_config") as sync:
             create_feishu_client(settings)
             sync.assert_not_called()
+
+
+def test_factory_skips_config_when_profile_not_executable():
+    settings = Settings(
+        feishu_app_id="cli_x",
+        feishu_app_secret="sec",
+        lark_cli_bin="lark-cli",
+        lark_cli_identity="bot",
+        lark_cli_profile="xiaoqi",
+        lark_cli_sync_config=True,
+    )
+    lying = CliCapabilities(
+        has_profile=False,
+        has_as=False,
+        has_config=True,
+        has_json=True,
+    )
+    with patch("feishu.factory.probe_lark_cli", return_value=lying):
+        with patch("feishu.factory.ensure_lark_cli_config") as sync:
+            create_feishu_client(settings)
+            sync.assert_not_called()
+
+
+def test_config_sync_skips_without_executable_profile():
+    lying = CliCapabilities(
+        has_profile=False,
+        has_as=False,
+        has_config=True,
+        has_json=True,
+    )
+    with patch("lark_cli.config_sync.subprocess.run") as mock_run:
+        ensure_lark_cli_config(
+            "cli_new",
+            "secret",
+            cli_bin="lark-cli",
+            profile="xiaoqi",
+            capabilities=lying,
+        )
+    mock_run.assert_not_called()

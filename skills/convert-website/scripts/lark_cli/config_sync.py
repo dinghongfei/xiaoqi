@@ -6,7 +6,7 @@ import json
 import logging
 import subprocess
 
-from lark_cli.runner import CliCapabilities, probe_lark_cli
+from lark_cli.runner import CliCapabilities, looks_like_flag_failure, probe_lark_cli
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +25,15 @@ def ensure_lark_cli_config(
     pass ``--profile``, and init also uses ``--name`` so it appends/updates
     that named profile without switching the globally active one.
 
-    Skip entirely when this binary has no ``config`` subcommand (sandbox CLIs).
+    Skip entirely when this binary has no ``config`` subcommand (sandbox CLIs),
+    or when ``--profile`` is listed in help but cannot actually be executed.
     """
     if not app_id or not app_secret:
         return
 
     caps = capabilities if capabilities is not None else probe_lark_cli(cli_bin)
-    if not caps.has_config:
-        logger.debug("skip lark-cli config sync: binary has no config command")
+    if not caps.has_config or not caps.has_profile:
+        logger.debug("skip lark-cli config sync: no executable config/profile")
         return
 
     profile_name = (profile or "").strip()
@@ -67,13 +68,24 @@ def ensure_lark_cli_config(
         profile_name,
     ]
 
-    subprocess.run(
-        cmd,
-        input=app_secret.encode(),
-        check=True,
-        capture_output=True,
-        timeout=30,
-    )
+    try:
+        subprocess.run(
+            cmd,
+            input=app_secret.encode(),
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as exc:
+        combined = (
+            (exc.stdout or b"").decode("utf-8", errors="replace")
+            + "\n"
+            + (exc.stderr or b"").decode("utf-8", errors="replace")
+        )
+        if looks_like_flag_failure(combined):
+            logger.warning("skip lark-cli config sync: %s", combined.strip()[:200])
+            return
+        raise
 
 
 def _parse_config_show_stdout(stdout: str) -> dict:

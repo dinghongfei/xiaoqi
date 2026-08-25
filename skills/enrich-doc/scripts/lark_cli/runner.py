@@ -23,9 +23,14 @@ _UNSUPPORTED = (
     "unsupported",
     "unknown command",
     "unknown subcommand",
+    "unknown flag",
+    "unknown option",
+    "unknown argument",
     "not support",
     "不支持",
 )
+
+_PROBE_PROFILE = "xiaoqi"
 
 
 class LarkCliError(Exception):
@@ -122,29 +127,97 @@ def _run_help(cmd: list[str]) -> str | None:
 
 def _help_looks_unsupported(text: str) -> bool:
     lowered = text.lower()
-    return any(token in lowered for token in _UNSUPPORTED)
+    return any(token in lowered for token in _UNSUPPORTED) or "只支持" in text
+
+
+def _rejects_flag(text: str, flag: str) -> bool:
+    """True when output says this global flag cannot be used."""
+    if not text:
+        return False
+    token = f"--{flag}"
+    lowered = text.lower()
+    mentioned = token.lower() in lowered
+    if flag == "profile":
+        mentioned = mentioned or "profile" in lowered
+    if flag == "config":
+        mentioned = mentioned or "config" in lowered
+    if not mentioned:
+        return False
+    return _help_looks_unsupported(text)
+
+
+def looks_like_flag_failure(text: str) -> bool:
+    return _help_looks_unsupported(text)
+
+
+def _accepts_global_args(bin_path: str, extra: list[str]) -> bool:
+    """Help can list a flag that the wrapper still rejects on a real invocation.
+
+    Probe without ``--help``: some sandboxes forward help to the official CLI
+    (so help contains ``--profile``) but reject the flag on execute.
+    """
+    text = _run_help([bin_path, *extra])
+    if text is None:
+        return False
+    flags = [arg[2:] for arg in extra if arg.startswith("--")]
+    if any(_rejects_flag(text, flag) for flag in flags):
+        return False
+    return "不支持" not in text
+
+
+def caps_after_flag_failure(
+    caps: CliCapabilities,
+    cmd: list[str],
+    text: str,
+) -> CliCapabilities | None:
+    """Drop auth flags that were on the failing command; keep --json unless named."""
+    if not looks_like_flag_failure(text):
+        return None
+    used_auth = "--profile" in cmd or "--as" in cmd
+    used_json = "--json" in cmd
+    if not used_auth and not used_json:
+        return None
+    has_json = caps.has_json
+    if used_json and _rejects_flag(text, "json"):
+        has_json = False
+    new = CliCapabilities(
+        has_profile=caps.has_profile and not used_auth,
+        has_as=caps.has_as and not used_auth,
+        has_config=caps.has_config and not used_auth,
+        has_json=has_json,
+    )
+    if new == caps:
+        return None
+    return new
 
 
 @lru_cache(maxsize=16)
 def probe_lark_cli(bin_path: str) -> CliCapabilities:
-    """Detect which global flags / config subcommand this binary supports."""
+    """Detect flags this binary can actually execute, not only list in --help."""
     top = _run_help([bin_path, "--help"])
     if top is None:
         return CliCapabilities.none()
 
-    has_profile = "--profile" in top
-    has_as = bool(re.search(r"--as(?:\s|=|$)", top))
-    has_json = "--json" in top
+    has_profile = "--profile" in top and _accepts_global_args(
+        bin_path, ["--profile", _PROBE_PROFILE]
+    )
+    has_as = bool(re.search(r"--as(?:\s|=|$)", top)) and _accepts_global_args(
+        bin_path, ["--as", "bot"]
+    )
+    has_json = "--json" in top and _accepts_global_args(bin_path, ["--json"])
 
     config_help = _run_help([bin_path, "config", "--help"])
     has_config = False
-    if config_help is not None and not _help_looks_unsupported(config_help):
+    if config_help is not None and not looks_like_flag_failure(config_help):
         low = config_help.lower()
         has_config = "init" in low or "show" in low or bool(
             re.search(r"(?m)^\s*config\b", top)
         )
-    elif re.search(r"(?m)^\s*config\b", top) and not _help_looks_unsupported(top):
+    elif re.search(r"(?m)^\s*config\b", top) and not looks_like_flag_failure(top):
         has_config = True
+
+    if has_config and not has_profile:
+        has_config = False
 
     return CliCapabilities(
         has_profile=has_profile,
@@ -183,6 +256,7 @@ class LarkCliRunner:
         self.app_id = (app_id or "").strip()
         self.app_secret = (app_secret or "").strip()
         self._capabilities = capabilities
+        self._downgraded = False
         if not self.profile:
             raise LarkCliError("请设置 LARK_CLI_PROFILE")
 
@@ -214,6 +288,19 @@ class LarkCliRunner:
         env.update(credential_env(self.app_id, self.app_secret))
         return env
 
+    def _try_downgrade(self, cmd: list[str], text: str) -> bool:
+        if self._downgraded:
+            return False
+        new = caps_after_flag_failure(self.capabilities, cmd, text)
+        if new is None:
+            return False
+        logger.warning(
+            "lark-cli rejected global flags; retrying without profile/as"
+        )
+        self._capabilities = new
+        self._downgraded = True
+        return True
+
     def run(
         self,
         args: list[str],
@@ -224,46 +311,54 @@ class LarkCliRunner:
         as_identity: str | None = None,
     ) -> dict[str, Any]:
         identity = as_identity or self.identity
-        cmd = self._build_cmd(args, identity)
-        logger.debug("lark-cli: %s", " ".join(cmd))
-        env = self._subprocess_env()
+        while True:
+            cmd = self._build_cmd(args, identity)
+            logger.debug("lark-cli: %s", " ".join(cmd))
+            env = self._subprocess_env()
 
-        try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(cwd) if cwd else None,
-                input=input_text.encode() if input_text else None,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-                env=env,
-            )
-        except FileNotFoundError as exc:
-            raise LarkCliError(
-                f"未找到 lark-cli（{self.bin_path}），请先安装：npx @larksuite/cli@latest install"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            raise LarkCliError(f"lark-cli 命令超时: {' '.join(args)}") from exc
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(cwd) if cwd else None,
+                    input=input_text.encode() if input_text else None,
+                    capture_output=True,
+                    timeout=timeout,
+                    check=False,
+                    env=env,
+                )
+            except FileNotFoundError as exc:
+                raise LarkCliError(
+                    f"未找到 lark-cli（{self.bin_path}），请先安装：npx @larksuite/cli@latest install"
+                ) from exc
+            except subprocess.TimeoutExpired as exc:
+                raise LarkCliError(f"lark-cli 命令超时: {' '.join(args)}") from exc
 
-        stdout = proc.stdout.decode("utf-8", errors="replace").strip()
-        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+            stdout = proc.stdout.decode("utf-8", errors="replace").strip()
+            stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+            combined = f"{stdout}\n{stderr}".strip()
 
-        if not stdout:
-            message = stderr or f"lark-cli 退出码 {proc.returncode}"
-            raise LarkCliError(message)
+            if not stdout:
+                message = stderr or f"lark-cli 退出码 {proc.returncode}"
+                if self._try_downgrade(cmd, message):
+                    continue
+                raise LarkCliError(message)
 
-        try:
-            payload = _parse_cli_stdout(stdout)
-        except json.JSONDecodeError as exc:
-            raise LarkCliError(
-                f"lark-cli 返回非 JSON 输出: {stdout[:200]}",
-                details={"stderr": stderr, "returncode": proc.returncode},
-            ) from exc
+            try:
+                payload = _parse_cli_stdout(stdout)
+            except json.JSONDecodeError as exc:
+                if self._try_downgrade(cmd, combined):
+                    continue
+                raise LarkCliError(
+                    f"lark-cli 返回非 JSON 输出: {stdout[:200]}",
+                    details={"stderr": stderr, "returncode": proc.returncode},
+                ) from exc
 
-        if not payload.get("ok"):
-            error = payload.get("error") or {}
-            raw_message = error.get("message") or stderr or "lark-cli 请求失败"
-            message = _shorten_lark_error_message(raw_message)
-            raise LarkCliError(message, details=error)
+            if not payload.get("ok"):
+                error = payload.get("error") or {}
+                raw_message = error.get("message") or stderr or "lark-cli 请求失败"
+                if self._try_downgrade(cmd, f"{raw_message}\n{stderr}"):
+                    continue
+                message = _shorten_lark_error_message(raw_message)
+                raise LarkCliError(message, details=error)
 
-        return payload
+            return payload
