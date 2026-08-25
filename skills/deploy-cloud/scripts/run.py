@@ -38,9 +38,9 @@ def main(argv: list[str] | None = None) -> int:
     print(result.message)
     job = load_last_job(settings) or {}
     if job.get("site_preview"):
-        print(f"SITE_PREVIEW={job['site_preview']}")
+        print(f"官网预览={job['site_preview']}")
     if job.get("wechat_preview"):
-        print(f"WECHAT_PREVIEW={job['wechat_preview']}")
+        print(f"公众号预览={job['wechat_preview']}")
     return 0 if result.ok else 1
 
 

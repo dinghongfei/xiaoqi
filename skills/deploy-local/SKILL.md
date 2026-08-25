@@ -48,6 +48,6 @@ uv run python <本Skill目录>/scripts/run.py --root /path/to/workspace
 - 假定工作区 `site/` 已是完整 Hugo 工程（缺 `hugo.toml` 直接报错）。
 - `hugo --minify` 生成 `site/public/`，再整目录覆盖拷到 `preview/`。
 - 保留已有 `preview/_wechat/`，避免冲掉公众号页。
-- 成功时打印 `SITE_PREVIEW=...`
+- 成功时打印 `官网预览=...`
 
 预览 HTTP 由宿主项目的启动脚本提供（本 Skill 只负责构建和拷贝）。

@@ -46,4 +46,5 @@ uv run python <本Skill目录>/scripts/run.py --sk '…' --root /path/to/workspa
 - 校验 `--sk` 与工作区 `.env` 的 `PUBLISH_SECRET_KEY`。
 - `OSS_BUCKET` 为空 → 返回 **未开通**（未配置对象存储，仅本地预览）。
 - 上传 `preview/`（含官网和 `_wechat/`）。
+- 成功时若 last-job 里有预览 URL，打印 `官网预览=...` / `公众号预览=...`。
 - `GIT_PUSH_ENABLED` 默认关闭；**禁止** `git reset --hard`。

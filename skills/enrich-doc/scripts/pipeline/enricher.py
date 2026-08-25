@@ -51,6 +51,8 @@ _DOC_TITLE_RE = re.compile(
     r"<title>\s*(.*?)\s*</title>",
     re.IGNORECASE | re.DOTALL,
 )
+_ATX_H1_LINE = re.compile(r"^#[^#\n](.*)$")
+_ENRICHMENT_H1 = frozenset({"属性", "图片"})
 
 ARTICLE_TEXT_MAX = 20000
 DEFAULT_AUTHOR = "内容编辑"
@@ -206,19 +208,39 @@ def build_enrichment_markdown(
     return "\n".join(parts) + "\n"
 
 
+def _split_leading_doc_title_h1(text: str) -> tuple[str, str]:
+    """Keep original first-line H1 (Feishu doc title). Returns (title_block, rest)."""
+    if not text:
+        return "", ""
+    lines = text.splitlines(keepends=True)
+    first = lines[0]
+    core = first.rstrip("\r\n")
+    match = _ATX_H1_LINE.match(core)
+    if not match:
+        return "", text
+    heading = match.group(1).strip()
+    if heading in _ENRICHMENT_H1:
+        return "", text
+    rest = "".join(lines[1:]).lstrip("\n")
+    return core + "\n\n", rest
+
+
 def prepend_enrichment_markdown(existing: str, prefix: str) -> str:
-    """Insert enrichment after an optional leading <title>, before the original body."""
+    """Insert enrichment after an optional <title> and first-line H1 title."""
     text = existing or ""
     stripped = text.lstrip()
     lead = text[: len(text) - len(stripped)]
     enrichment = prefix.rstrip() + "\n\n"
+    xml_title = ""
+    rest = stripped
     match = _DOC_TITLE_RE.match(stripped)
     if match:
-        title_block = stripped[: match.end()].rstrip() + "\n\n"
+        xml_title = stripped[: match.end()].rstrip() + "\n\n"
         rest = stripped[match.end() :].lstrip("\n")
-        return f"{lead}{title_block}{enrichment}{rest}"
-    rest = text.lstrip("\n")
-    return f"{enrichment}{rest}" if rest else enrichment
+    else:
+        rest = stripped.lstrip("\n")
+    first_h1, rest = _split_leading_doc_title_h1(rest)
+    return f"{lead}{xml_title}{first_h1}{enrichment}{rest}"
 
 
 def _safe_job_token(token: str) -> str:

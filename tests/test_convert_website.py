@@ -25,6 +25,26 @@ PROCESSED = """
 ![cover](/image/demo-cover.svg)
 """
 
+PROCESSED_TITLE_BEFORE_META = """
+# 测试飞书云文档转换为公众号文章
+
+# 属性
+| slug | 文件名 | hello-preview |
+| lang | 中文写zh, 英文写en | zh |
+| title | 标题 | 你好预览 |
+| date | 时间 | 2026-03-01 |
+| author | 作者 | 内容编辑 |
+| categories | 分类 | 演示 |
+| summary | 摘要 | 摘要文字 |
+---
+
+# 一、什么是具身智能
+
+## 小节
+
+正文段落
+"""
+
 
 def test_convert_website_writes_hugo_markdown(tmp_path: Path):
     hugo_root = tmp_path / "site"
@@ -56,6 +76,42 @@ def test_convert_website_writes_hugo_markdown(tmp_path: Path):
     assert result.site_preview == "http://127.0.0.1:1314/blog/hello-preview/"
 
 
+def test_convert_website_keeps_section_h1_when_title_sits_above_metadata(tmp_path: Path):
+    hugo_root = tmp_path / "site"
+    hugo_root.mkdir()
+    (hugo_root / "hugo.toml").write_text("title='demo'\n", encoding="utf-8")
+    processed = tmp_path / "processed.md"
+    processed.write_text(PROCESSED_TITLE_BEFORE_META, encoding="utf-8")
+    settings = Settings(
+        hugo_root=hugo_root,
+        hugo_deploy_dir=tmp_path / "preview",
+        last_job_path=tmp_path / "last-job.json",
+        site_base_url="http://127.0.0.1:1314",
+    )
+    dump_last_job(
+        settings,
+        {"processed_markdown_path": str(processed), "section": "blog"},
+    )
+    result = convert_website(settings)
+    assert result.status == "ok"
+    text = (hugo_root / "content" / "zh-cn" / "blog" / "hello-preview.md").read_text(
+        encoding="utf-8"
+    )
+    assert "# 测试飞书云文档转换为公众号文章" not in text
+    assert "# 一、什么是具身智能" in text
+    assert "## 小节" in text
+
+
+def test_metadata_keeps_doc_title_h1():
+    from parser.body_format import metadata_keeps_doc_title_h1
+
+    assert metadata_keeps_doc_title_h1(
+        "# 测试飞书云文档转换为公众号文章\n\n# 属性\n| slug | 文件名 | x |"
+    )
+    assert not metadata_keeps_doc_title_h1("# 属性\n| slug | 文件名 | x |")
+    assert not metadata_keeps_doc_title_h1("| slug | 文件名 | x |")
+
+
 def test_prepare_hugo_body_keeps_content_h1_after_intro():
     from parser.body_format import prepare_hugo_body
 
@@ -82,6 +138,10 @@ def test_prepare_hugo_body_drops_only_first_line_title_h1():
     body = prepare_hugo_body(md)
     assert "# 测试飞书云文档转换为公众号文章" not in body
     assert "# 一、什么是具身智能" in body
+
+    kept = prepare_hugo_body(md, drop_leading_h1=False)
+    assert "# 测试飞书云文档转换为公众号文章" in kept
+    assert "# 一、什么是具身智能" in kept
 
 
 def test_convert_website_requires_download(tmp_path: Path):

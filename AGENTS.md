@@ -125,8 +125,8 @@ flowchart TB
 然后在最终回复中单独输出：
 
 ```
-SITE_PREVIEW=<url>
-WECHAT_PREVIEW=<url>
+官网预览=<url>
+公众号预览=<url>
 ```
 
 没有的那一行就省略。失败用中文说明原因，并在 `reply-preview --summary` 里写同样的原因。

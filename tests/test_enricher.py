@@ -381,6 +381,19 @@ def test_prepend_enrichment_markdown_keeps_title():
     assert doc_already_has_metadata(out)
 
 
+def test_prepend_enrichment_markdown_keeps_first_line_h1():
+    existing = "# 测试飞书云文档转换为公众号文章\n\n# 一、什么是具身智能\n\n正文\n"
+    prefix = build_enrichment_markdown(dict(VALID_METADATA))
+    out = prepend_enrichment_markdown(existing, prefix)
+    assert out.startswith("# 测试飞书云文档转换为公众号文章\n")
+    assert out.index("# 测试飞书云文档转换为公众号文章") < out.index("# 属性")
+    assert out.index("# 属性") < out.index("# 一、什么是具身智能")
+    doc = split_doc_content(out)
+    assert "# 测试飞书云文档转换为公众号文章" in doc.metadata_region
+    assert "# 一、什么是具身智能" in doc.body
+    assert "# 测试飞书云文档转换为公众号文章" not in doc.body
+
+
 def _tmp_settings(tmp_path: Path) -> Settings:
     jobs = tmp_path / "jobs"
     jobs.mkdir()
@@ -399,7 +412,10 @@ def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
     work.mkdir()
     processed = work / "processed.md"
     raw = work / "raw.md"
-    processed.write_text("正文：关于机器人的文章\n", encoding="utf-8")
+    processed.write_text(
+        "# 测试飞书云文档转换为公众号文章\n\n# 一、什么是具身智能\n\n正文：关于机器人的文章\n",
+        encoding="utf-8",
+    )
     raw.write_text("<title>原标题</title>\n\n正文：关于机器人的文章\n", encoding="utf-8")
     dump_last_job(
         settings,
@@ -428,7 +444,10 @@ def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
     processed_text = processed.read_text(encoding="utf-8")
     raw_text = raw.read_text(encoding="utf-8")
     assert doc_already_has_metadata(processed_text)
-    assert split_doc_content(processed_text).metadata["slug"] == "demo-article"
+    processed_doc = split_doc_content(processed_text)
+    assert processed_doc.metadata["slug"] == "demo-article"
+    assert processed_text.startswith("# 测试飞书云文档转换为公众号文章\n")
+    assert "# 一、什么是具身智能" in processed_doc.body
     assert raw_text.startswith("<title>原标题</title>")
     job = load_last_job(settings)
     assert job["slug"] == "demo-article"

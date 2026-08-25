@@ -7,6 +7,8 @@ import re
 from parser.xml_styles import overlay_xml_styles
 
 _ATX_H1_LINE = re.compile(r"^#[^#\n].*$")
+_ATX_H1_TEXT = re.compile(r"^#[^#\n](.*)$")
+_ENRICHMENT_H1 = frozenset({"属性", "图片"})
 _FENCE_TITLE = re.compile(
     r"^```([^\n`]*?)\s+title=\"([^\"]*)\"\s*$",
     re.MULTILINE,
@@ -17,6 +19,21 @@ _CALLOUT = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _ATTR = re.compile(r'(\w+)="([^"]*)"')
+
+
+def metadata_keeps_doc_title_h1(metadata_region: str) -> bool:
+    """True when the Feishu doc title H1 sits above the 属性 table."""
+    for line in metadata_region.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.lower().startswith("<title"):
+            continue
+        match = _ATX_H1_TEXT.match(stripped)
+        if not match:
+            return False
+        return match.group(1).strip() not in _ENRICHMENT_H1
+    return False
 
 
 def strip_leading_atx_h1(body: str) -> str:
@@ -86,10 +103,16 @@ def rewrite_callouts(body: str) -> str:
     return _CALLOUT.sub(repl, body)
 
 
-def prepare_hugo_body(body: str, xml_text: str = "") -> str:
+def prepare_hugo_body(
+    body: str,
+    xml_text: str = "",
+    *,
+    drop_leading_h1: bool = True,
+) -> str:
     if xml_text.strip():
         body = overlay_xml_styles(body, xml_text)
     body = hugoize_fence_titles(body)
     body = rewrite_callouts(body)
-    body = strip_leading_atx_h1(body)
+    if drop_leading_h1:
+        body = strip_leading_atx_h1(body)
     return body.strip() + "\n"

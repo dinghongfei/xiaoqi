@@ -123,8 +123,8 @@ def build_agent_prompt(
         f"{user_text.strip()}\n\n"
         "完成后，在最终回复中单独输出以下固定行"
         "（没有对应预览就省略该行；失败则用中文写明原因）：\n"
-        "SITE_PREVIEW=<url>\n"
-        "WECHAT_PREVIEW=<url>\n"
+        "官网预览=<url>\n"
+        "公众号预览=<url>\n"
     )
 
 

@@ -58,6 +58,6 @@ uv run python <本Skill目录>/scripts/run.py --markdown path/to/article.md --ro
 - 写入 `preview/_wechat/{lang}/{slug}/index.html`。
 - 预览页左侧是文章（可切手机 / 电脑宽度），右侧可调主题、字体、字号、主题色。预览用 CSS 变量；点「一键复制」时在浏览器里把当前计算样式写成 inline，并把图片嵌进剪贴板。不要单独复制图片（`127.0.0.1` 公众号后台拉不到）。
 - 没有「发布」按钮，也不接主题市场。
-- 成功时打印 `WECHAT_PREVIEW=...`
+- 成功时打印 `公众号预览=...`
 
 飞书里无法写入系统剪贴板，复制必须在浏览器预览页完成。

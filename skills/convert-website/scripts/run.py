@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     result = convert_website(settings, section=args.section, markdown_path=md)
     print(result.message)
     if result.site_preview:
-        print(f"SITE_PREVIEW={result.site_preview}")
+        print(f"官网预览={result.site_preview}")
     return 0 if result.status == "ok" else 1
 
 

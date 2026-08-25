@@ -40,7 +40,7 @@ def deploy_local_preview(settings: Settings) -> StepResult:
         update_last_job(settings, site_preview=preview)
         return StepResult(
             status="ok",
-            message=f"本地预览已更新：{deploy.message}\nSITE_PREVIEW={preview}",
+            message=f"本地预览已更新：{deploy.message}\n官网预览={preview}",
         )
     return StepResult(
         status="ok",

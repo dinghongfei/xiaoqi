@@ -27,8 +27,8 @@ def test_build_agent_prompt_mentions_skills_and_last_job():
     assert "uv run bot" not in prompt
     assert "reply-preview" in prompt
     assert "om_1" in prompt
-    assert "SITE_PREVIEW=" in prompt
-    assert "WECHAT_PREVIEW=" in prompt
+    assert "官网预览=" in prompt
+    assert "公众号预览=" in prompt
     assert "hello-preview" in prompt
     assert "oc_1" in prompt
     assert ".env.prod" in prompt
@@ -80,7 +80,7 @@ def test_run_agent_parses_stdout(monkeypatch, tmp_path):
     monkeypatch.setattr("bot.agent_runner.which_agent", lambda _s: spec)
     completed = MagicMock(
         returncode=0,
-        stdout="ok\nSITE_PREVIEW=http://127.0.0.1:1314/blog/a/\n",
+        stdout="ok\n官网预览=http://127.0.0.1:1314/blog/a/\n",
         stderr="",
     )
     with patch("bot.agent_runner.subprocess.run", return_value=completed) as run:
@@ -98,7 +98,7 @@ def test_run_agent_parses_stdout(monkeypatch, tmp_path):
 def test_run_agent_flattens_json_result(monkeypatch, tmp_path):
     spec = AgentSpec("claude", "claude", ["claude", "-p"])
     monkeypatch.setattr("bot.agent_runner.which_agent", lambda _s: spec)
-    payload = json.dumps({"result": "SITE_PREVIEW=http://127.0.0.1:1314/blog/x/\n"})
+    payload = json.dumps({"result": "官网预览=http://127.0.0.1:1314/blog/x/\n"})
     completed = MagicMock(returncode=0, stdout=payload, stderr="")
     with patch("bot.agent_runner.subprocess.run", return_value=completed):
         result = run_agent("x", settings=Settings(agent_timeout=30))

@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     result = convert_wechat(settings, markdown_path=md)
     print(result.message)
     if result.wechat_preview:
-        print(f"WECHAT_PREVIEW={result.wechat_preview}")
+        print(f"公众号预览={result.wechat_preview}")
     return 0 if result.status == "ok" else 1
 
 
