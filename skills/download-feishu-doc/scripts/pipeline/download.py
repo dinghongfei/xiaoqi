@@ -85,6 +85,7 @@ def download_feishu_doc(
     raw_path = work / "raw.md"
     xml_path = work / "raw.xml"
     processed_path = work / "processed.md"
+    refreshed = raw_path.is_file()
     raw_path.write_text(raw, encoding="utf-8")
     if xml:
         xml_path.write_text(xml, encoding="utf-8")
@@ -142,7 +143,11 @@ def download_feishu_doc(
     }
     dump_last_job(settings, job)
 
-    note = "文档已下载，媒体已落到 static/。"
+    note = (
+        "文档已重新下载并覆盖本地稿，媒体已落到 static/。"
+        if refreshed
+        else "文档已下载，媒体已落到 static/。"
+    )
     if slug:
         note += f" 识别到 slug={slug} lang={lang}。"
     elif meta_error:

@@ -80,7 +80,7 @@ uv run python skills/clean-generated/scripts/run.py
 uv run python skills/reply-preview/scripts/run.py --message-id 'om_xxx'
 ```
 
-上次任务产物：`data/last-job.json`（token、slug、路径、预览 URL）。再出公众号可先读它。这不是会话记忆。
+上次任务产物：`data/last-job.json`（token、slug、路径、预览 URL）。**没有新的飞书文档链接**时（例如只说「出公众号」）可先读它。用户消息里带了文档链接——哪怕和上次同一篇——必须重新跑 `download-feishu-doc`，不要用旧 `processed.md` 代替下载（云文档可能已改过）。这不是会话记忆。
 
 飞书任务结束时（提示里有 `message_id`）：**成功或失败都要**跑 `reply-preview`。IDE 里没有 `message_id` 则不要发卡片。
 

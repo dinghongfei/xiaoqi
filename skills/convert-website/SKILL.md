@@ -23,7 +23,7 @@ convert-website/
 
 ## 何时调用
 
-已运行 `download-feishu-doc`（或 `data/last-job.json` 指向有效 processed.md）之后。官网预览链路：
+用户给了飞书文档链接时，先跑 `download-feishu-doc`（同一链接也要重新下载），再跑本 Skill。不要直接用上次的 `processed.md`。仅当本轮已经下载过、或用户没有给新链接时，才读 `data/last-job.json` 里的 processed.md。官网预览链路：
 
 ```mermaid
 flowchart LR

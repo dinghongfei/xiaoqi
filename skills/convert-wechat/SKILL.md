@@ -23,7 +23,7 @@ convert-wechat/
 
 ## 何时调用
 
-官网 Markdown 已写好之后。推荐先 `deploy-local`，这样预览页里的图片是可访问的绝对 URL。
+官网 Markdown 已写好之后。用户给了飞书文档链接时，先走完整官网序列（含重新 `download-feishu-doc`），不要用上次的官网稿。仅当用户没有给新链接、只要把上次转换结果再出公众号时，才读 last-job 的 `content_path`。推荐先 `deploy-local`，这样预览页里的图片是可访问的绝对 URL。
 
 ```mermaid
 flowchart LR
