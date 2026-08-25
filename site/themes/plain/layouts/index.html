@@ -1,12 +1,80 @@
 {{ define "main" }}
-<section class="research-list">
-  <header class="research-list__header">
-    <h1 class="research-list__title">{{ .Title }}</h1>
-  </header>
-  <div class="research-list__grid">
-    {{ range first 12 (where site.RegularPages "Section" "blog") }}
-    {{ partial "research-card.html" . }}
-    {{ end }}
+{{ $zh := eq site.Language.Lang "zh-cn" }}
+{{ $posts := where site.RegularPages "Section" "blog" }}
+<section class="preview-home">
+  <h1 class="preview-home__title">{{ .Title }}</h1>
+  <div class="preview-home__columns">
+    <section class="preview-home__col research-list">
+      <header class="research-list__header">
+        <h2 class="research-list__title">{{ if $zh }}官网文章{{ else }}Website{{ end }}</h2>
+      </header>
+      {{ if $posts }}
+      <div class="research-list__grid">
+        {{ range $posts }}
+        {{ partial "research-card.html" . }}
+        {{ end }}
+      </div>
+      {{ else }}
+      <p class="preview-home__empty">{{ if $zh }}还没有官网文章{{ else }}No website articles yet.{{ end }}</p>
+      {{ end }}
+    </section>
+    <section class="preview-home__col research-list">
+      <header class="research-list__header">
+        <h2 class="research-list__title">{{ if $zh }}公众号文章{{ else }}WeChat{{ end }}</h2>
+      </header>
+      <div
+        id="wechat-list"
+        class="preview-home__empty"
+        data-empty="{{ if $zh }}还没有公众号预览{{ else }}No WeChat previews yet.{{ end }}"
+        data-open="{{ if $zh }}打开 →{{ else }}Open →{{ end }}"
+      >
+        {{ if $zh }}还没有公众号预览{{ else }}No WeChat previews yet.{{ end }}
+      </div>
+      <noscript>
+        <p class="preview-home__empty">{{ if $zh }}还没有公众号预览{{ else }}No WeChat previews yet.{{ end }}</p>
+      </noscript>
+    </section>
   </div>
 </section>
+<script>
+(function () {
+  var root = document.getElementById("wechat-list");
+  if (!root) return;
+  var empty = root.getAttribute("data-empty") || "";
+  fetch("/_wechat/index.json")
+    .then(function (res) { return res.ok ? res.json() : { articles: [] }; })
+    .then(function (data) {
+      var articles = (data && data.articles) || [];
+      if (!articles.length) {
+        root.textContent = empty;
+        root.className = "preview-home__empty";
+        return;
+      }
+      root.className = "preview-home__wechat-list";
+      root.textContent = "";
+      articles.forEach(function (item) {
+        var a = document.createElement("a");
+        a.className = "preview-home__wechat-item";
+        a.href = item.url;
+        var meta = document.createElement("p");
+        meta.className = "preview-home__wechat-meta";
+        meta.textContent = item.lang || "";
+        var title = document.createElement("h2");
+        title.className = "preview-home__wechat-title";
+        title.textContent = item.title || item.slug || "";
+        var more = document.createElement("span");
+        more.className = "preview-home__wechat-more";
+        more.textContent = root.getAttribute("data-open") || "";
+        a.appendChild(meta);
+        a.appendChild(title);
+        a.appendChild(more);
+        root.appendChild(a);
+      });
+    })
+    .catch(function () {
+      root.textContent = empty;
+      root.className = "preview-home__empty";
+    });
+})();
+</script>
 {{ end }}

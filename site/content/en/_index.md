@@ -1,5 +1,5 @@
 +++
-title = 'Demo Site'
+title = 'Content Preview'
 +++
 
 This is a demo site.

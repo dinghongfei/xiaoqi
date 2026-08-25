@@ -12,6 +12,7 @@ import markdown
 from config import Settings
 from last_job import abs_from_job, load_last_job, relpath, update_last_job
 from urls import wechat_page_url
+from wechat.catalog import write_wechat_catalog
 from wechat.highlight import highlight_code, parse_fence_info
 from wechat.themes import (
     ARTICLE_PREVIEW_CSS,
@@ -811,9 +812,10 @@ def convert_wechat(
             xml_text=xml_text,
         )
     )
+    article_title = _front_matter_title(text) or slug
     page = build_preview_page(
         article,
-        title=f"公众号预览 · {slug}",
+        title=article_title,
         slug=slug,
     )
 
@@ -821,6 +823,7 @@ def convert_wechat(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "index.html"
     out_path.write_text(page, encoding="utf-8")
+    write_wechat_catalog(settings.preview_dir, settings.hugo_root)
 
     preview = wechat_page_url(settings.site_base_url, lang, slug)
     rel = relpath(out_path)

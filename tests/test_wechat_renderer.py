@@ -1,6 +1,7 @@
 """Tests for WeChat restyle and themable preview copy page."""
 
 from pathlib import Path
+import json
 import re
 
 from config import Settings
@@ -264,3 +265,100 @@ def test_convert_wechat_writes_preview_tree(tmp_path: Path):
     assert "wechat-article" in page
     assert "style-panel" in page
     assert "wx-theme-data" in page
+    catalog = preview / "_wechat" / "index.json"
+    assert catalog.is_file()
+    data = json.loads(catalog.read_text(encoding="utf-8"))
+    assert data["articles"] == [
+        {
+            "title": "你好",
+            "lang": "zh-cn",
+            "slug": "hello-preview",
+            "url": "/_wechat/zh-cn/hello-preview/",
+        }
+    ]
+    assert "<title>你好</title>" in page
+
+
+def test_convert_wechat_catalog_overwrites_same_slug(tmp_path: Path):
+    preview = tmp_path / "preview"
+    settings = Settings(
+        hugo_root=tmp_path / "site",
+        hugo_deploy_dir=preview,
+        last_job_path=tmp_path / "last-job.json",
+        site_base_url="http://127.0.0.1:1314",
+    )
+    first = tmp_path / "first.md"
+    first.write_text(SAMPLE_MD, encoding="utf-8")
+    dump_last_job(
+        settings,
+        {
+            "slug": "hello-preview",
+            "lang": "zh-cn",
+            "content_path": str(first),
+        },
+    )
+    assert convert_wechat(settings).status == "ok"
+    second = tmp_path / "second.md"
+    second.write_text(
+        SAMPLE_MD.replace("title = '你好'", "title = '更新标题'"),
+        encoding="utf-8",
+    )
+    dump_last_job(
+        settings,
+        {
+            "slug": "hello-preview",
+            "lang": "zh-cn",
+            "content_path": str(second),
+        },
+    )
+    assert convert_wechat(settings).status == "ok"
+    data = json.loads(
+        (preview / "_wechat" / "index.json").read_text(encoding="utf-8")
+    )
+    assert len(data["articles"]) == 1
+    assert data["articles"][0]["title"] == "更新标题"
+    assert data["articles"][0]["slug"] == "hello-preview"
+
+
+def test_write_wechat_catalog_scans_existing_pages(tmp_path: Path):
+    from wechat.catalog import write_wechat_catalog
+
+    preview = tmp_path / "preview"
+    chinese = preview / "_wechat" / "zh-cn" / "alpha"
+    english = preview / "_wechat" / "en" / "beta"
+    chinese.mkdir(parents=True)
+    english.mkdir(parents=True)
+    (chinese / "index.html").write_text("<title>中文稿</title>", encoding="utf-8")
+    (english / "index.html").write_text("<title>English</title>", encoding="utf-8")
+    write_wechat_catalog(preview)
+    data = json.loads((preview / "_wechat" / "index.json").read_text(encoding="utf-8"))
+    slugs = {item["slug"]: item for item in data["articles"]}
+    assert slugs["alpha"]["title"] == "中文稿"
+    assert slugs["alpha"]["url"] == "/_wechat/zh-cn/alpha/"
+    assert slugs["beta"]["lang"] == "en"
+    assert slugs["beta"]["title"] == "English"
+
+
+def test_write_wechat_catalog_uses_hugo_title_not_placeholder(tmp_path: Path):
+    from wechat.catalog import write_wechat_catalog
+
+    hugo_root = tmp_path / "site"
+    article = hugo_root / "content" / "zh-cn" / "blog"
+    article.mkdir(parents=True)
+    (article / "intelligent-robot-tech-and-products.md").write_text(
+        "+++\ntitle = '智能机器人核心技术与人形产品对比'\n"
+        "translationKey = 'intelligent-robot-tech-and-products'\n+++\n\n正文\n",
+        encoding="utf-8",
+    )
+    preview = tmp_path / "preview"
+    page_dir = preview / "_wechat" / "zh-cn" / "intelligent-robot-tech-and-products"
+    page_dir.mkdir(parents=True)
+    (page_dir / "index.html").write_text(
+        "<title>公众号预览 · intelligent-robot-tech-and-products</title>",
+        encoding="utf-8",
+    )
+    write_wechat_catalog(preview, hugo_root)
+    data = json.loads((preview / "_wechat" / "index.json").read_text(encoding="utf-8"))
+    assert len(data["articles"]) == 1
+    assert data["articles"][0]["title"] == "智能机器人核心技术与人形产品对比"
+    assert "公众号预览" not in data["articles"][0]["title"]

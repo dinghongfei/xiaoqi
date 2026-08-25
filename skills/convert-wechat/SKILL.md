@@ -55,7 +55,7 @@ uv run python <本Skill目录>/scripts/run.py --markdown path/to/article.md --ro
 - 代码块保留语言，带标题时显示标题栏，并用 Pygments 做语法高亮。
 - 加粗、斜体、下划线、删除线、字体颜色、背景高亮、有序/无序列表、表格、引用都会进预览 HTML。
 - 图片改成 `SITE_BASE_URL` 绝对地址。
-- 写入 `preview/_wechat/{lang}/{slug}/index.html`。
+- 写入 `preview/_wechat/{lang}/{slug}/index.html`，并更新 `preview/_wechat/index.json` 供预览首页列出公众号文章。
 - 预览页左侧是文章（可切手机 / 电脑宽度），右侧可调主题、字体、字号、主题色。预览用 CSS 变量；点「一键复制」时在浏览器里把当前计算样式写成 inline，并把图片嵌进剪贴板。不要单独复制图片（`127.0.0.1` 公众号后台拉不到）。
 - 没有「发布」按钮，也不接主题市场。
 - 成功时打印 `公众号预览=...`

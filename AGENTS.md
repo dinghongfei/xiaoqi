@@ -37,7 +37,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   ask["用中文要 App ID / Secret<br/>不要猜、不要抄别的目录"] --> run["./install.sh --app-id … --app-secret …"]
-  run --> ready["预览 http://127.0.0.1:1314/<br/>飞书进程"]
+  run --> ready["预览首页（官网/公众号列表）<br/>http://127.0.0.1:1314/<br/>飞书进程"]
 ```
 
 1. **先要凭证。** 用中文请用户到 https://open.feishu.cn/app 创建企业自建应用，把 **App ID** 和 **App Secret** 发给你。说明只要这两项，不用他们懂命令。没有这两项就不要开装。
@@ -49,7 +49,7 @@ flowchart LR
 
    已有完整 `.env`、用户只是说「继续安装」时，可以直接 `./install.sh`。
 3. **脚本会自己做完：** `./install.sh` 安装 curl、uv、Hugo Extended、Node / lark-cli、尽量装 ffmpeg 并 `uv sync`；写入 `.env`、给本机 Agent 软链 `skills/`、构建演示站、启动预览和飞书进程。
-4. **用中文汇报结果。** 成功就告诉用户打开 http://127.0.0.1:1314/ ，并去飞书把机器人拉进对话、发一篇云文档链接。失败就把脚本里的中文原因原样告诉用户，缺什么就说缺什么，然后按提示请用户做最少的一步（例如去 nodejs.org 装 Node，或 Mac 上先装 Homebrew），用户说「继续安装」后再跑一次 `./install.sh`。
+4. **用中文汇报结果。** 成功就告诉用户打开 http://127.0.0.1:1314/ （首页左右两栏是已转换的官网文章和公众号文章），并去飞书把机器人拉进对话、发一篇云文档链接。失败就把脚本里的中文原因原样告诉用户，缺什么就说缺什么，然后按提示请用户做最少的一步（例如去 nodejs.org 装 Node，或 Mac 上先装 Homebrew），用户说「继续安装」后再跑一次 `./install.sh`。
 5. **退出码 2** 表示还缺 App ID/Secret：再问一次，不要改脚本、不要编造。
 
 若执行环境有沙箱，安装时要允许联网、允许写入项目目录和 `~/.local/bin`。
