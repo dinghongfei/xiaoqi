@@ -4,7 +4,7 @@
 
 不要自研 tool-calling 循环；内容任务按本文件和 `skills/*/SKILL.md` 调用**该 Skill 目录内的脚本**。
 
-`uv run bot` 只用于宿主进程：`serve`、`preview-http`。不要写成 Skill 依赖。Skill 脚本用 `uv run python skills/<name>/scripts/run.py`（走项目 `.venv`）。安装一律走仓库根目录 `./install.sh`。
+`uv run bot` 只用于宿主进程：`serve`、`preview-http`。不要写成 Skill 依赖。Skill 脚本用 `uv run python skills/<name>/scripts/run.py`（走项目 `.venv`）。若执行时报 `uv` 不在 PATH，把 `uv` 换成绝对路径（`$HOME/.local/bin/uv` 或 `$HOME/.cargo/bin/uv`），不要让用户改 PATH。安装一律走仓库根目录 `./install.sh`。
 
 ## 支持的 Agent
 
@@ -65,7 +65,7 @@ flowchart LR
 
 ## Skills
 
-在项目根目录（或传入 `--root`）下用 `uv run python` 执行对应脚本：
+在项目根目录（或传入 `--root`）下用 `uv run python` 执行对应脚本。若 `uv` 不在当前 PATH，用绝对路径调用 uv（常见 `$HOME/.local/bin/uv`）：
 
 ```bash
 uv run python skills/download-feishu-doc/scripts/run.py --url '…'

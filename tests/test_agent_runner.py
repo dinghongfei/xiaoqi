@@ -1,11 +1,13 @@
 """Tests for Agent CLI adapters."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from bot.agent_runner import (
     AgentSpec,
     build_agent_prompt,
+    resolve_uv_bin,
     run_agent,
     which_agent,
 )
@@ -36,6 +38,29 @@ def test_build_agent_prompt_mentions_skills_and_last_job():
     assert "必须重新执行 download-feishu-doc" in prompt
     assert "没有特别说明" in prompt
     assert "processed.md" in prompt
+    assert "不在 PATH" in prompt
+
+
+def test_resolve_uv_bin_uses_uv_bin_env(tmp_path, monkeypatch):
+    fake = tmp_path / "uv"
+    fake.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setenv("UV_BIN", str(fake))
+    monkeypatch.setattr("bot.agent_runner.shutil.which", lambda _name: None)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "missing-home"))
+    assert resolve_uv_bin() == str(fake.resolve())
+
+
+def test_resolve_uv_bin_falls_back_to_home_local(tmp_path, monkeypatch):
+    bindir = tmp_path / ".local" / "bin"
+    bindir.mkdir(parents=True)
+    fake = bindir / "uv"
+    fake.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.delenv("UV_BIN", raising=False)
+    monkeypatch.setattr("bot.agent_runner.shutil.which", lambda _name: None)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert resolve_uv_bin() == str(fake.resolve())
 
 
 def test_build_agent_prompt_skips_reply_preview_without_message_id():

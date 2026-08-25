@@ -54,6 +54,9 @@ def test_scripts_stop_before_restart():
     assert "lsof" in helper
     assert "_pids_on_port" in helper
     assert "_pids_by_name" in helper
+    assert "uv_path.sh" in start
+    assert '"$UV" run' in start
+    assert "resolve_uv" in start
 
 
 def test_stop_kills_pidfile_process(tmp_path: Path):
@@ -103,3 +106,26 @@ def test_stop_kills_process_listening_on_preview_port(tmp_path: Path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=3)
+
+
+def test_resolve_uv_finds_home_local_when_not_on_path(tmp_path: Path):
+    home = tmp_path / "home"
+    bindir = home / ".local" / "bin"
+    bindir.mkdir(parents=True)
+    fake = bindir / "uv"
+    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake.chmod(0o755)
+    uv_path = REPO / "scripts" / "uv_path.sh"
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["PATH"] = "/usr/bin:/bin"
+    env.pop("UV_BIN", None)
+    proc = subprocess.run(
+        ["bash", "-c", f'source "{uv_path}"; resolve_uv && printf "%s" "$UV"'],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert Path(proc.stdout).resolve() == fake.resolve()

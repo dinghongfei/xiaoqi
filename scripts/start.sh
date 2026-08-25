@@ -4,6 +4,12 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 # shellcheck source=process.sh
 source "$PROJECT_ROOT/scripts/process.sh"
+# shellcheck source=uv_path.sh
+source "$PROJECT_ROOT/scripts/uv_path.sh"
+if ! resolve_uv; then
+  echo "找不到 uv（常见路径 $HOME/.local/bin/uv）。请对助手说「安装环境」。" >&2
+  exit 1
+fi
 
 DATA_DIR="$PROJECT_ROOT/data/run"
 LOG_DIR="$PROJECT_ROOT/data/logs"
@@ -18,7 +24,7 @@ HTTP_LOG="$LOG_DIR/preview-http.log"
 _detach() {
   local pidfile="$1" logfile="$2"
   shift 2
-  uv run python - "$pidfile" "$logfile" "$PROJECT_ROOT" "$@" <<'PY'
+  "$UV" run python - "$pidfile" "$logfile" "$PROJECT_ROOT" "$@" <<'PY'
 import os
 import sys
 
@@ -57,8 +63,8 @@ fi
 
 stop_project_services
 
-_detach "$HTTP_PID" "$HTTP_LOG" uv run bot preview-http
-_detach "$BOT_PID" "$BOT_LOG" uv run bot serve
+_detach "$HTTP_PID" "$HTTP_LOG" "$UV" run bot preview-http
+_detach "$BOT_PID" "$BOT_LOG" "$UV" run bot serve
 
 ok=0
 for _ in $(seq 1 40); do

@@ -7,6 +7,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 export BOT_ROOT="$ROOT"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+# shellcheck source=scripts/uv_path.sh
+source "$ROOT/scripts/uv_path.sh"
 
 HUGO_VER="0.147.9"
 APP_ID=""
@@ -83,8 +85,8 @@ ensure_curl() {
 }
 
 ensure_uv() {
-  if have uv; then
-    echo "✓ uv $(uv --version 2>/dev/null | head -n1)"
+  if resolve_uv; then
+    echo "✓ uv $($UV --version 2>/dev/null | head -n1)"
     return 0
   fi
   if ! ensure_curl; then
@@ -96,11 +98,11 @@ ensure_uv() {
     return 1
   fi
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-  if have uv; then
-    echo "✓ 已安装 uv"
+  if resolve_uv; then
+    echo "✓ 已安装 uv（$UV）"
     return 0
   fi
-  echo "✗ uv 已下载但不在 PATH。请把 ~/.local/bin 加入 PATH 后对助手说「继续安装」。" >&2
+  echo "✗ 找不到 uv。请对助手说「继续安装」。" >&2
   return 1
 }
 
@@ -234,14 +236,14 @@ fi
 ensure_ffmpeg
 
 echo "==> 同步项目依赖"
-if ! uv sync --all-groups; then
+if ! "$UV" sync --all-groups; then
   echo "✗ Python 依赖安装失败。请检查网络后对助手说「继续安装」。" >&2
   exit 1
 fi
 
 echo "==> 写入项目配置"
 set +e
-uv run python -m bot.initialize --root "$ROOT" --app-id "$APP_ID" --app-secret "$APP_SECRET"
+"$UV" run python -m bot.initialize --root "$ROOT" --app-id "$APP_ID" --app-secret "$APP_SECRET"
 cfg="$?"
 set -e
 if [[ "$cfg" -ne 0 ]]; then
@@ -249,7 +251,7 @@ if [[ "$cfg" -ne 0 ]]; then
 fi
 
 echo "==> 首次构建演示站"
-if ! uv run python "$ROOT/skills/deploy-local/scripts/run.py" --root "$ROOT"; then
+if ! "$UV" run python "$ROOT/skills/deploy-local/scripts/run.py" --root "$ROOT"; then
   echo "⚠ 演示站首次构建失败。依赖已装好的话，可以说「继续安装」。"
 fi
 
