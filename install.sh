@@ -99,7 +99,7 @@ ensure_uv() {
   fi
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
   if resolve_uv; then
-    echo "✓ 已安装 uv（$UV）"
+    echo "✓ 已安装 uv: ${UV}"
     return 0
   fi
   echo "✗ 找不到 uv。请对助手说「继续安装」。" >&2
