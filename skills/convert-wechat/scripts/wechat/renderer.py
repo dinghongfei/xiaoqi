@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
 import markdown
@@ -67,6 +68,110 @@ _VIDEO_COVER = re.compile(
     r"(?:<p>)?(<figure\b.*?</figure>|<img\b[^>]*>)(?:</p>)?",
     re.IGNORECASE | re.DOTALL,
 )
+_VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+_SKIP_LIST_WRAP = frozenset({"code", "pre", "script", "style", "svg", "textarea"})
+_LIST_TEXT_PARENTS = frozenset({"div", "li", "p", "section"})
+
+
+class _ListBareTextWrapper(HTMLParser):
+    """Wrap bare text in list items so WeChat does not turn it into a block."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+        self.stack: list[str] = []
+        self._buf: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._flush()
+        raw = self.get_starttag_text()
+        self.parts.append(raw if raw is not None else f"<{tag}>")
+        if tag not in _VOID_TAGS and not (raw or "").rstrip().endswith("/>"):
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._flush()
+        raw = self.get_starttag_text()
+        self.parts.append(raw if raw is not None else f"<{tag}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        self._flush()
+        if self.stack and self.stack[-1] == tag:
+            self.stack.pop()
+        elif tag in self.stack:
+            while self.stack and self.stack[-1] != tag:
+                self.stack.pop()
+            if self.stack:
+                self.stack.pop()
+        self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        self._buf.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self._buf.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self._buf.append(f"&#{name};")
+
+    def handle_comment(self, data: str) -> None:
+        self._flush()
+        self.parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self._flush()
+        self.parts.append(f"<!{decl}>")
+
+    def close(self) -> None:
+        self._flush()
+        super().close()
+
+    def _should_wrap(self) -> bool:
+        if not self.stack or any(tag in _SKIP_LIST_WRAP for tag in self.stack):
+            return False
+        if "li" not in self.stack:
+            return False
+        return self.stack[-1] in _LIST_TEXT_PARENTS
+
+    def _flush(self) -> None:
+        if not self._buf:
+            return
+        data = "".join(self._buf)
+        self._buf.clear()
+        if self._should_wrap() and data.strip():
+            self.parts.append(f'<span style="display: inline">{data}</span>')
+        else:
+            self.parts.append(data)
+
+
+def wrap_list_bare_text(html_text: str) -> str:
+    """Keep list text after leading inline tags (strong/em/code) on the same line.
+
+    WeChat's editor wraps a bare text node that follows an inline child of
+    ``<li>`` in a block ``<section>``, so「**感知系统**：视觉…」breaks at the
+    colon after paste. A span with a style attribute is kept.
+    """
+    parser = _ListBareTextWrapper()
+    parser.feed(html_text)
+    parser.close()
+    return "".join(parser.parts)
 
 
 @dataclass
@@ -306,6 +411,7 @@ def restyle_markdown(
     )
     body = _restore_fenced_code(body, code_blocks)
     body = _merge_video_covers(body)
+    body = wrap_list_bare_text(body)
     return f'<div class="wechat-article">{body}</div>'
 
 
@@ -528,6 +634,9 @@ def _preview_script() -> str:
         "border-radius", "word-break", "display", "white-space"
       ];
       const IMG_PROPS = ["max-width", "height", "display"];
+      const INLINE_TAGS = {
+        a: 1, b: 1, code: 1, del: 1, em: 1, i: 1, mark: 1, small: 1, span: 1, strong: 1, u: 1
+      };
 
       function loadState() {
         const defaults = Object.assign({ device: "phone" }, data.defaults || {});
@@ -602,6 +711,7 @@ def _preview_script() -> str:
             const prop = props[p];
             const val = cs.getPropertyValue(prop);
             if (!keep(prop, val)) continue;
+            if (prop === "display" && INLINE_TAGS[tag]) continue;
             if (prop.indexOf("border-") === 0 && prop.indexOf("-color") !== -1) {
               const side = prop.replace("-color", "-width");
               const width = cs.getPropertyValue(side);
@@ -619,6 +729,36 @@ def _preview_script() -> str:
           node.removeAttribute("id");
         }
         return clone;
+      }
+
+      function flattenListEmphasis(root) {
+        root.querySelectorAll("li strong, li b, li em, li i").forEach((el) => {
+          const span = document.createElement("span");
+          const prev = el.getAttribute("style") || "";
+          const tag = el.tagName.toLowerCase();
+          const extra = (tag === "strong" || tag === "b") ? "font-weight: 700" : "font-style: italic";
+          span.setAttribute("style", prev ? prev.replace(/;?\s*$/, "") + "; " + extra : extra);
+          while (el.firstChild) span.appendChild(el.firstChild);
+          el.replaceWith(span);
+        });
+      }
+
+      function wrapListBareText(root) {
+        function wrap(el) {
+          if (el.closest("pre, code, script, style")) return;
+          Array.from(el.childNodes).forEach((node) => {
+            if (node.nodeType !== Node.TEXT_NODE) return;
+            if (!node.nodeValue || !/[^\s]/.test(node.nodeValue)) return;
+            const span = document.createElement("span");
+            span.setAttribute("style", "display: inline");
+            span.textContent = node.nodeValue;
+            el.replaceChild(span, node);
+          });
+        }
+        root.querySelectorAll("li").forEach((li) => {
+          wrap(li);
+          li.querySelectorAll("p, section, div").forEach(wrap);
+        });
       }
 
       function preserveCodeSpaces(root) {
@@ -699,6 +839,8 @@ def _preview_script() -> str:
         try {
           const live = host.querySelector(".wechat-article") || host;
           const clone = snapshotInline(live);
+          flattenListEmphasis(clone);
+          wrapListBareText(clone);
           preserveCodeSpaces(clone);
           await inlineImages(clone);
           await writeClipboard(clone.outerHTML, live.innerText);

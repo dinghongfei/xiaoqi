@@ -7,7 +7,12 @@ import re
 from config import Settings
 from last_job import dump_last_job
 from wechat.highlight import highlight_code
-from wechat.renderer import convert_wechat, restyle_markdown, build_preview_page
+from wechat.renderer import (
+    convert_wechat,
+    restyle_markdown,
+    build_preview_page,
+    wrap_list_bare_text,
+)
 from wechat.themes import theme_payload
 
 
@@ -160,6 +165,45 @@ print("ok")
     assert "小鹏 Iron 视频封面" in html
     video_html = html[html.find("wechat-video-card") : html.find("</aside>") + 8]
     assert "iron.png" in video_html
+    assert '<span style="display: inline">：视觉与力觉</span>' in html
+    assert '<span style="display: inline">：步态规划</span>' in html
+    assert "<p><strong>具身智能</strong>强调" in html
+
+
+def test_wrap_list_bare_text_keeps_colon_after_bold_on_same_item():
+    html = wrap_list_bare_text(
+        "<ul><li><strong>感知系统</strong>：视觉、力觉、触觉、听觉</li>"
+        "<li>纯文本项</li></ul>"
+        "<ol><li><p><strong>采集</strong>：摄像头</p></li></ol>"
+        "<p><strong>具身智能</strong>强调身体</p>"
+    )
+    assert "<strong>感知系统</strong>" in html
+    assert '<span style="display: inline">：视觉、力觉、触觉、听觉</span>' in html
+    assert '<span style="display: inline">纯文本项</span>' in html
+    assert '<span style="display: inline">：摄像头</span>' in html
+    assert "<p><strong>具身智能</strong>强调身体</p>" in html
+
+
+def test_restyle_wraps_ordered_and_unordered_list_tails():
+    md = """+++
+title = '列表'
++++
+
+- **感知系统**：视觉、力觉、触觉、听觉等多模态传感器融合
+- **运动控制**：步态规划
+
+1. **采集**：摄像头和传感器
+2. 纯文本项
+"""
+    html = restyle_markdown(md, site_base_url="http://127.0.0.1:1314")
+    assert "<strong>感知系统</strong>" in html
+    assert (
+        '<span style="display: inline">'
+        "：视觉、力觉、触觉、听觉等多模态传感器融合</span>"
+    ) in html
+    assert "<strong>采集</strong>" in html
+    assert '<span style="display: inline">：摄像头和传感器</span>' in html
+    assert "纯文本项" in html
 
 
 def test_xml_overlay_restores_color_underline_caption_and_code_title():
@@ -239,6 +283,9 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert "style-panel" in page
     assert "readAsDataURL" in page
     assert "preserveCodeSpaces" in page
+    assert "flattenListEmphasis" in page
+    assert "wrapListBareText" in page
+    assert "INLINE_TAGS" in page
     assert 'querySelectorAll("img")' in page
     assert "getComputedStyle" in page
     assert "--wx-accent" in page
