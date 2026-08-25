@@ -98,3 +98,44 @@ def test_download_same_token_refetches_and_overwrites(tmp_path: Path):
     assert "第2次正文" in raw
     assert "第1次正文" not in raw
     assert "重新下载并覆盖本地稿" in second.message
+
+
+def test_download_keeps_raw_title_tag_and_processed_h1(tmp_path: Path):
+    hugo_root = tmp_path / "site"
+    (hugo_root / "static" / "image").mkdir(parents=True)
+    (hugo_root / "static" / "video").mkdir(parents=True)
+    settings = Settings(
+        hugo_root=hugo_root,
+        hugo_deploy_dir=tmp_path / "preview",
+        last_job_path=tmp_path / "last-job.json",
+        jobs_dir=tmp_path / "jobs",
+        state_db_path=tmp_path / "state.db",
+        media_compress_enabled=False,
+    )
+
+    class TitleClient:
+        def fetch_doc_markdown(self, doc):
+            return (
+                "<title>测试飞书云文档转换为公众号文章1</title>\n\n"
+                "# 一、什么是具身智能\n\n正文里没有媒体。\n",
+                "docid",
+            )
+
+        def fetch_doc_xml(self, doc):
+            return "<doc></doc>"
+
+    result = download_feishu_doc(
+        settings,
+        TitleClient(),
+        DocRef(kind="docx", token="AbCToken", url="https://example.feishu.cn/docx/AbCToken"),
+        section="blog",
+    )
+    assert result.status == "ok"
+    raw = (tmp_path / "jobs" / "AbCToken" / "raw.md").read_text(encoding="utf-8")
+    processed = (tmp_path / "jobs" / "AbCToken" / "processed.md").read_text(
+        encoding="utf-8"
+    )
+    assert raw.startswith("<title>测试飞书云文档转换为公众号文章1</title>")
+    assert processed.startswith("# 测试飞书云文档转换为公众号文章1\n")
+    assert "<title>" not in processed
+    assert "# 一、什么是具身智能" in processed

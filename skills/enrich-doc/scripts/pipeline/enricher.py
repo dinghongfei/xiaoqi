@@ -22,7 +22,11 @@ from media.downloader import (
     MARKDOWN_IMAGE_PATTERN,
 )
 from parser.doc_content import split_doc_content
-from parser.feishu_text import prepare_feishu_markdown, unescape_feishu_text
+from parser.feishu_text import (
+    feishu_title_tag_to_atx_h1,
+    prepare_feishu_markdown,
+    unescape_feishu_text,
+)
 from parser.message import DocRef
 from parser.metadata import (
     DEFAULT_FIELD_HINTS,
@@ -225,22 +229,26 @@ def _split_leading_doc_title_h1(text: str) -> tuple[str, str]:
     return core + "\n\n", rest
 
 
-def prepend_enrichment_markdown(existing: str, prefix: str) -> str:
-    """Insert enrichment after an optional <title> and first-line H1 title."""
-    text = existing or ""
+def prepend_enrichment_markdown(
+    existing: str, prefix: str, *, doc_title: str = ""
+) -> str:
+    """Insert 属性/图片 after the document title H1, then the article body.
+
+    ``doc_title`` is the raw.md ``<title>`` text when writing processed.md.
+    A leading ``<title>`` in ``existing`` is converted to ``# title`` and not kept.
+    """
+    text = feishu_title_tag_to_atx_h1(existing or "")
     stripped = text.lstrip()
     lead = text[: len(text) - len(stripped)]
     enrichment = prefix.rstrip() + "\n\n"
-    xml_title = ""
-    rest = stripped
-    match = _DOC_TITLE_RE.match(stripped)
-    if match:
-        xml_title = stripped[: match.end()].rstrip() + "\n\n"
-        rest = stripped[match.end() :].lstrip("\n")
-    else:
-        rest = stripped.lstrip("\n")
-    first_h1, rest = _split_leading_doc_title_h1(rest)
-    return f"{lead}{xml_title}{first_h1}{enrichment}{rest}"
+    title = (doc_title or "").strip() or extract_feishu_doc_title(existing or "")
+    first_h1, rest = _split_leading_doc_title_h1(stripped)
+    if title:
+        heading_text = first_h1.lstrip("#").strip() if first_h1 else ""
+        if heading_text != title:
+            rest = stripped
+        return f"{lead}# {title}\n\n{enrichment}{rest}"
+    return f"{lead}{first_h1}{enrichment}{rest}"
 
 
 def _safe_job_token(token: str) -> str:
@@ -261,8 +269,9 @@ def find_local_markdown_files(
     doc_ref: DocRef,
     *,
     document_id: str = "",
+    include_raw: bool = True,
 ) -> list[Path]:
-    """Locate already-downloaded raw.md / processed.md for this doc. Does not create dirs."""
+    """Locate already-downloaded processed.md (and optionally raw.md). Does not create dirs."""
     if settings is None:
         return []
     seen: set[Path] = set()
@@ -285,12 +294,14 @@ def find_local_markdown_files(
     for token in tokens:
         work = jobs_dir / _safe_job_token(token)
         add(work / "processed.md")
-        add(work / "raw.md")
+        if include_raw:
+            add(work / "raw.md")
 
     job = load_last_job(settings)
     if job and _job_matches(job, doc_ref, document_id):
         add(abs_from_job(settings, job.get("processed_markdown_path")))
-        add(abs_from_job(settings, job.get("raw_markdown_path")))
+        if include_raw:
+            add(abs_from_job(settings, job.get("raw_markdown_path")))
 
     paths.sort(key=lambda p: (0 if p.name == "processed.md" else 1, str(p)))
     return paths
@@ -302,7 +313,9 @@ def local_doc_already_has_metadata(
     *,
     document_id: str = "",
 ) -> bool:
-    for path in find_local_markdown_files(settings, doc_ref, document_id=document_id):
+    for path in find_local_markdown_files(
+        settings, doc_ref, document_id=document_id, include_raw=False
+    ):
         try:
             if doc_already_has_metadata(path.read_text(encoding="utf-8")):
                 return True
@@ -340,9 +353,19 @@ class Enricher:
         cover_prompt: str,
         include_image_heading: bool,
     ) -> list[Path]:
-        paths = find_local_markdown_files(
+        located = find_local_markdown_files(
             self.settings, doc_ref, document_id=document_id
         )
+        raw_title = ""
+        for path in located:
+            if path.name != "raw.md":
+                continue
+            try:
+                raw_title = extract_feishu_doc_title(path.read_text(encoding="utf-8"))
+            except OSError:
+                raw_title = ""
+            break
+        paths = [path for path in located if path.name == "processed.md"]
         if not paths:
             return []
         prefix = build_enrichment_markdown(
@@ -355,7 +378,9 @@ class Enricher:
             existing = path.read_text(encoding="utf-8")
             if doc_already_has_metadata(existing):
                 continue
-            updated = prepend_enrichment_markdown(existing, prefix)
+            updated = prepend_enrichment_markdown(
+                existing, prefix, doc_title=raw_title
+            )
             tmp = path.with_name(path.name + ".tmp")
             tmp.write_text(updated, encoding="utf-8")
             tmp.replace(path)
@@ -523,7 +548,7 @@ class Enricher:
                 )
                 wrote_cloud = True
             except Exception as e:
-                if is_edit_permission_error(e):
+                if is_edit_permission_error(e) or can_edit is None:
                     logger.info("Enrich skip cloud write [%s]: %s", label, e)
                     can_edit = False
                 else:

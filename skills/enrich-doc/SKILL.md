@@ -59,7 +59,7 @@ uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn
 - 本机 `lark-cli`
 - `scripts/requirements.txt`（`httpx`、`pydantic-settings`）
 - 工作区 `.env` 中的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `LARK_CLI_PROFILE`
-- 有编辑权限时回写云文档；没有则只写入本地已下载文档（`data/jobs/<token>/processed.md` 与 `raw.md`）。无权限且尚未下载时 apply 会失败，需先 `download-feishu-doc`
+- 有编辑权限时回写云文档；没有则只写入本地已下载的 `processed.md`（不改 `raw.md`）。无权限且尚未下载时 apply 会失败，需先 `download-feishu-doc`
 
 ## 你来生成字段
 
@@ -82,8 +82,8 @@ uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn
 
 - `inspect`：拉文档；云文档或本地已下载文档已有可解析属性表则拒绝；几乎没有文字则拒绝。JSON 里带 `can_edit`。
 - `apply`：再次拉文档做同样检查，校验字段后：
-  - **有编辑权限**：写回云文档顶部（属性标题 + 三列表格 + 可选图片提示词）；若本地已下载则同步写入。
-  - **没有编辑权限**：不回写云文档，只把同样的属性表写入本地已下载的 `processed.md` / `raw.md`。若原文第一行是一级标题（文档标题），保留该行，属性表从第二行起插入，避免正文里的一级标题被挤到 `---` 之后当成文档标题删掉。
+  - **有编辑权限**：写回云文档顶部（属性标题 + 三列表格 + 可选图片提示词）；若本地已下载则同步写入 `processed.md`，不改 `raw.md`。
+  - **没有编辑权限**：不回写云文档，只把属性表写入本地 `processed.md`。`processed.md` 结构为：第一行是由 `raw.md` 开头 `<title>` 转成的 markdown 一级标题，下面是属性/图片，再然后是文章正文。`raw.md` 保持下载原文。
   - **没有编辑权限且尚未下载**：失败，提示先 `download-feishu-doc`。
 - 正文插图不算封面：仅当「图片」区已有图时才跳过封面提示词。
 - 不写 Hugo、不压缩、不部署。

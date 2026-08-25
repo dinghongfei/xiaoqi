@@ -4,6 +4,11 @@ import re
 from datetime import date, datetime
 
 TITLE_TAG_PATTERN = re.compile(r"<title>[^<]*</title>\s*", re.IGNORECASE)
+LEADING_TITLE_TAG_PATTERN = re.compile(
+    r"\A\s*<title>\s*(.*?)\s*</title>\s*",
+    re.IGNORECASE | re.DOTALL,
+)
+_ATX_H1_TEXT = re.compile(r"^#[^#\n](.*)$")
 DATE_ONLY_PATTERN = re.compile(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$")
 CATEGORY_SPLIT_PATTERN = re.compile(r"[,，;；/|]+")
 DEFAULT_TZ_SUFFIX = "T00:00:00+08:00"
@@ -31,14 +36,39 @@ def strip_feishu_title_tag(text: str) -> str:
 
 
 def prepare_feishu_markdown(raw: str) -> str:
-    """Normalize Feishu/lark-cli markdown export before metadata parsing."""
-    text = strip_feishu_title_tag(raw).strip()
-    return text
+    """Normalize Feishu/lark-cli markdown export before metadata parsing.
+
+    Leading ``<title>`` becomes an ATX H1 so processed.md starts with the
+    document title. The downloaded raw.md keeps the original tag.
+    """
+    return feishu_title_tag_to_atx_h1(raw).strip()
 
 
 def unescape_feishu_text(text: str) -> str:
     """Remove backslash escapes inserted by Feishu markdown/YAML export."""
     return re.sub(r"\\(.)", r"\1", text.strip())
+
+
+def feishu_title_tag_to_atx_h1(text: str) -> str:
+    """Turn a leading ``<title>`` tag into ``# title``. Leave other text as-is."""
+    if not text:
+        return ""
+    match = LEADING_TITLE_TAG_PATTERN.match(text)
+    if not match:
+        return text
+    title = unescape_feishu_text(match.group(1)).strip()
+    rest = text[match.end() :].lstrip("\n")
+    if not title:
+        return rest
+    lines = rest.splitlines(keepends=True)
+    if lines:
+        first = lines[0].rstrip("\r\n")
+        heading = _ATX_H1_TEXT.match(first)
+        if heading and heading.group(1).strip() == title:
+            rest = "".join(lines[1:]).lstrip("\n")
+    if rest:
+        return f"# {title}\n\n{rest}"
+    return f"# {title}"
 
 
 def strip_inline_styles(text: str) -> str:

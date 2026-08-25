@@ -34,6 +34,8 @@ def test_build_agent_prompt_mentions_skills_and_last_job():
     assert ".env.prod" in prompt
     assert "不要编造" in prompt
     assert "必须重新执行 download-feishu-doc" in prompt
+    assert "没有特别说明" in prompt
+    assert "processed.md" in prompt
 
 
 def test_build_agent_prompt_skips_reply_preview_without_message_id():

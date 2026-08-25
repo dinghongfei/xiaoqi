@@ -16,7 +16,7 @@ slug=demo
 
 产物：
 
-- `data/jobs/<token>/raw.md`、`processed.md`
+- `data/jobs/<token>/raw.md`（下载原文）、`processed.md`（`<title>` 已转成一级标题，媒体已本地化）
 - `data/last-job.json`
 - 媒体写入 `site/static/image/`、`site/static/video/`
 

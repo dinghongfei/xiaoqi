@@ -375,7 +375,8 @@ def test_prepend_enrichment_markdown_keeps_title():
     existing = "<title>原标题</title>\n\n正文内容足够长"
     prefix = build_enrichment_markdown(dict(VALID_METADATA))
     out = prepend_enrichment_markdown(existing, prefix)
-    assert out.startswith("<title>原标题</title>")
+    assert out.startswith("# 原标题\n")
+    assert "<title>" not in out
     assert "| slug |" in out
     assert "正文内容足够长" in out
     assert doc_already_has_metadata(out)
@@ -392,6 +393,19 @@ def test_prepend_enrichment_markdown_keeps_first_line_h1():
     assert "# 测试飞书云文档转换为公众号文章" in doc.metadata_region
     assert "# 一、什么是具身智能" in doc.body
     assert "# 测试飞书云文档转换为公众号文章" not in doc.body
+
+
+def test_prepend_uses_raw_title_when_body_starts_with_section_h1():
+    existing = "# 一、什么是具身智能\n\n正文\n"
+    prefix = build_enrichment_markdown(dict(VALID_METADATA))
+    out = prepend_enrichment_markdown(
+        existing, prefix, doc_title="测试飞书云文档转换为公众号文章1"
+    )
+    assert out.startswith("# 测试飞书云文档转换为公众号文章1\n")
+    assert out.index("# 测试飞书云文档转换为公众号文章1") < out.index("# 属性")
+    assert out.index("# 属性") < out.index("# 一、什么是具身智能")
+    doc = split_doc_content(out)
+    assert "# 一、什么是具身智能" in doc.body
 
 
 def _tmp_settings(tmp_path: Path) -> Settings:
@@ -413,10 +427,11 @@ def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
     processed = work / "processed.md"
     raw = work / "raw.md"
     processed.write_text(
-        "# 测试飞书云文档转换为公众号文章\n\n# 一、什么是具身智能\n\n正文：关于机器人的文章\n",
+        "# 一、什么是具身智能\n\n正文：关于机器人的文章\n",
         encoding="utf-8",
     )
-    raw.write_text("<title>原标题</title>\n\n正文：关于机器人的文章\n", encoding="utf-8")
+    original_raw = "<title>测试飞书云文档转换为公众号文章1</title>\n\n# 一、什么是具身智能\n\n正文：关于机器人的文章\n"
+    raw.write_text(original_raw, encoding="utf-8")
     dump_last_job(
         settings,
         {
@@ -446,9 +461,14 @@ def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
     assert doc_already_has_metadata(processed_text)
     processed_doc = split_doc_content(processed_text)
     assert processed_doc.metadata["slug"] == "demo-article"
-    assert processed_text.startswith("# 测试飞书云文档转换为公众号文章\n")
+    assert processed_text.startswith("# 测试飞书云文档转换为公众号文章1\n")
+    assert processed_text.index("# 测试飞书云文档转换为公众号文章1") < processed_text.index(
+        "# 属性"
+    )
+    assert processed_text.index("# 属性") < processed_text.index("# 一、什么是具身智能")
     assert "# 一、什么是具身智能" in processed_doc.body
-    assert raw_text.startswith("<title>原标题</title>")
+    assert raw_text == original_raw
+    assert "# 属性" not in raw_text
     job = load_last_job(settings)
     assert job["slug"] == "demo-article"
     assert job["metadata_warning"] == ""
@@ -488,6 +508,30 @@ def test_apply_permission_error_falls_back_to_local(tmp_path: Path):
     client.prepend_doc_enrichment.side_effect = FeishuAPIError(
         "机器人没有该文档的编辑权限。请在飞书文档/知识库把应用机器人加为「可编辑」协作者"
     )
+
+    result = Enricher(client=client, settings=settings).apply_metadata(
+        DocRef(kind="docx", token="TokenOne"),
+        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+    )
+
+    assert result.status == "enriched"
+    assert result.wrote_cloud is False
+    assert doc_already_has_metadata(processed.read_text(encoding="utf-8"))
+
+
+def test_apply_inconclusive_edit_probe_falls_back_to_local(tmp_path: Path):
+    from feishu.client import FeishuAPIError
+
+    settings = _tmp_settings(tmp_path)
+    work = Path(settings.jobs_dir) / "TokenOne"
+    work.mkdir()
+    processed = work / "processed.md"
+    processed.write_text("正文：关于机器人的文章\n", encoding="utf-8")
+
+    client = MagicMock()
+    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
+    client.has_doc_edit_permission.return_value = None
+    client.prepend_doc_enrichment.side_effect = FeishuAPIError("lark-cli 请求失败")
 
     result = Enricher(client=client, settings=settings).apply_metadata(
         DocRef(kind="docx", token="TokenOne"),

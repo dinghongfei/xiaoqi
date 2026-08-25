@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     from config import get_settings
     from wechat.renderer import convert_wechat
 
-    parser = argparse.ArgumentParser(description="公众号原文换皮预览（一键复制）")
+    parser = argparse.ArgumentParser(description="把 processed.md 换成公众号预览（一键复制）")
     parser.add_argument("--root", default="")
     parser.add_argument("--env-file", default="")
     parser.add_argument("--markdown", default="")

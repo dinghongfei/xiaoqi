@@ -32,6 +32,30 @@ translationKey = 'hello-preview'
 正文保持原意。
 """
 
+SAMPLE_PROCESSED = """# 飞书文档标题
+
+# 属性
+| slug | 文件名 | hello-preview |
+| lang | 中文写zh, 英文写en | zh |
+| title | 标题 | 你好 |
+| date | 时间 | 2026-03-01 |
+| author | 作者 | 内容编辑 |
+| categories | 分类 | 演示 |
+| summary | 摘要 | 摘要文字 |
+
+# 图片
+
+封面提示词不要出现在正文
+
+---
+
+# 一、什么是具身智能
+
+{{< figure src="/image/demo-cover.svg" caption="示意图说明" >}}
+
+正文保持原意。
+"""
+
 
 def test_restyle_keeps_semantic_html_and_absolute_images():
     html = restyle_markdown(SAMPLE_MD, site_base_url="http://127.0.0.1:1314")
@@ -277,6 +301,39 @@ def test_convert_wechat_writes_preview_tree(tmp_path: Path):
         }
     ]
     assert "<title>你好</title>" in page
+
+
+def test_convert_wechat_reads_processed_markdown(tmp_path: Path):
+    processed = tmp_path / "processed.md"
+    processed.write_text(SAMPLE_PROCESSED, encoding="utf-8")
+    preview = tmp_path / "preview"
+    settings = Settings(
+        hugo_root=tmp_path / "site",
+        hugo_deploy_dir=preview,
+        last_job_path=tmp_path / "last-job.json",
+        site_base_url="http://127.0.0.1:1314",
+    )
+    dump_last_job(
+        settings,
+        {
+            "processed_markdown_path": str(processed),
+            "slug": "stale-slug",
+            "lang": "en",
+        },
+    )
+    result = convert_wechat(settings)
+    assert result.status == "ok"
+    assert result.wechat_preview == "http://127.0.0.1:1314/_wechat/zh-cn/hello-preview/"
+    page = (preview / "_wechat" / "zh-cn" / "hello-preview" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "<title>你好</title>" in page
+    assert "一、什么是具身智能" in page
+    assert "封面提示词不要出现在正文" not in page
+    assert "飞书文档标题" not in page
+    assert "| slug |" not in page
+    assert "示意图说明" in page
+    assert "正文保持原意" in page
 
 
 def test_convert_wechat_catalog_overwrites_same_slug(tmp_path: Path):

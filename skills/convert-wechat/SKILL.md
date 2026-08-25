@@ -1,6 +1,6 @@
 ---
 name: convert-wechat
-description: 把已转换的官网 Markdown 换成公众号预览页：左侧文章预览（手机/电脑），右侧可调主题/字体/字号/主题色，一键复制当前样式。
+description: 把 processed.md 换成公众号预览页：左侧文章预览（手机/电脑），右侧可调主题/字体/字号/主题色，一键复制当前样式。
 ---
 
 # 转换为公众号文章
@@ -23,7 +23,7 @@ convert-wechat/
 
 ## 何时调用
 
-官网 Markdown 已写好之后。用户给了飞书文档链接时，先走完整官网序列（含重新 `download-feishu-doc`），不要用上次的官网稿。仅当用户没有给新链接、只要把上次转换结果再出公众号时，才读 last-job 的 `content_path`。推荐先 `deploy-local`，这样预览页里的图片是可访问的绝对 URL。
+默认和官网一起做。用户给了飞书文档链接、或说「转换 / 预览」而没有声明只要其中一路时，先走完整序列（含重新 `download-feishu-doc`），再跑本 Skill。不要用上次的稿。仅当用户明确只要公众号、且没有新链接时，才读 last-job 的 `processed.md`。推荐先 `deploy-local`，这样预览页里的图片是可访问的绝对 URL。
 
 ```mermaid
 flowchart LR
@@ -37,10 +37,10 @@ flowchart LR
 
 ```bash
 uv run python <本Skill目录>/scripts/run.py
-uv run python <本Skill目录>/scripts/run.py --markdown path/to/article.md --root /path/to/workspace
+uv run python <本Skill目录>/scripts/run.py --markdown path/to/processed.md --root /path/to/workspace
 ```
 
-默认读 last-job 的 `content_path`。
+默认读 last-job 的 `processed_markdown_path`（`processed.md`）。
 
 ## 依赖
 
@@ -48,8 +48,8 @@ uv run python <本Skill目录>/scripts/run.py --markdown path/to/article.md --ro
 
 ## 行为
 
-- **不改写原文**，只换皮，并把飞书 XML 里的颜色/下划线/高亮补回来。
-- 仅当正文第一行一级标题与 front matter 的 `title` 相同，才当作文章标题去掉。正文里其它一级标题（如「# 一、…」）保留。公众号编辑器自己有标题栏。
+- 读 `processed.md`：属性表和图片区在 `---` 之上，只把后面的正文换皮。飞书 XML 里的颜色/下划线/高亮补回来。
+- 仅当正文第一行一级标题与属性表 `title` 相同，才当作文章标题去掉。正文里其它一级标题（如「# 一、…」）保留。公众号编辑器自己有标题栏。
 - `figure` → 图+注；markdown 图片的 alt 也当 caption。
 - grid 展平；video / 视频 callout 做成信息卡片，后面的封面图收进卡片。
 - 代码块保留语言，带标题时显示标题栏，并用 Pygments 做语法高亮。

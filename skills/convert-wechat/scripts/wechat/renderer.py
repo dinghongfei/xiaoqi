@@ -14,6 +14,7 @@ from last_job import abs_from_job, load_last_job, relpath, update_last_job
 from urls import wechat_page_url
 from wechat.catalog import write_wechat_catalog
 from wechat.highlight import highlight_code, parse_fence_info
+from wechat.source import fallback_hugo_title, parse_processed_markdown
 from wechat.themes import (
     ARTICLE_PREVIEW_CSS,
     COLORS,
@@ -235,11 +236,12 @@ def restyle_markdown(
     *,
     site_base_url: str,
     xml_text: str = "",
+    article_title: str = "",
 ) -> str:
-    """Turn Hugo markdown into semantic article HTML. Styles stay in the preview page."""
+    """Turn article markdown into semantic HTML. Styles stay in the preview page."""
     if xml_text:
         markdown_text = overlay_xml_styles(markdown_text, xml_text)
-    title = _front_matter_title(markdown_text)
+    title = article_title or _front_matter_title(markdown_text)
     text = strip_front_matter(markdown_text)
     text = _strip_article_title(text, title=title)
     text = _rewrite_callouts(text)
@@ -791,28 +793,41 @@ def convert_wechat(
     markdown_path: Path | None = None,
 ) -> WeChatResult:
     job = load_last_job(settings) or {}
-    source = markdown_path or abs_from_job(settings, job.get("content_path"))
+    source = markdown_path or abs_from_job(
+        settings,
+        job.get("processed_markdown_path") or job.get("content_path"),
+    )
     if source is None or not source.is_file():
         return WeChatResult(
             status="error",
-            message="没有官网 Markdown。请先 convert-website（通常还要先 deploy-local 以便图片有可访问 URL）。",
+            message="没有可转换的 processed.md。请先 download-feishu-doc（通常还要 deploy-local 以便图片有可访问 URL）。",
         )
 
-    slug = str(job.get("slug") or source.stem)
-    lang = str(job.get("lang") or "zh-cn")
     text = source.read_text(encoding="utf-8")
+    parsed = parse_processed_markdown(text)
+    if parsed is not None:
+        body = parsed.body
+        slug = parsed.slug or str(job.get("slug") or source.stem)
+        lang = parsed.lang or str(job.get("lang") or "zh-cn")
+        article_title = parsed.title or fallback_hugo_title(text) or slug
+    else:
+        body = text
+        slug = str(job.get("slug") or source.stem)
+        lang = str(job.get("lang") or "zh-cn")
+        article_title = fallback_hugo_title(text) or _front_matter_title(text) or slug
+
     xml_text = ""
     xml_path = abs_from_job(settings, job.get("xml_path"))
     if xml_path is not None and xml_path.is_file():
         xml_text = xml_path.read_text(encoding="utf-8")
     article = _extract_article_div(
         restyle_markdown(
-            text,
+            body,
             site_base_url=settings.site_base_url,
             xml_text=xml_text,
+            article_title=article_title,
         )
     )
-    article_title = _front_matter_title(text) or slug
     page = build_preview_page(
         article,
         title=article_title,

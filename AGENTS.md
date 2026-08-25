@@ -80,7 +80,7 @@ uv run python skills/clean-generated/scripts/run.py
 uv run python skills/reply-preview/scripts/run.py --message-id 'om_xxx'
 ```
 
-上次任务产物：`data/last-job.json`（token、slug、路径、预览 URL）。**没有新的飞书文档链接**时（例如只说「出公众号」）可先读它。用户消息里带了文档链接——哪怕和上次同一篇——必须重新跑 `download-feishu-doc`，不要用旧 `processed.md` 代替下载（云文档可能已改过）。这不是会话记忆。
+上次任务产物：`data/last-job.json`（token、slug、路径、预览 URL）。**没有新的飞书文档链接**时（例如只说「出公众号」）可先读它。用户消息里带了文档链接——哪怕和上次同一篇——必须重新跑 `download-feishu-doc`，不要用旧 `processed.md` 代替下载（云文档可能已改过）。这不是会话记忆。没有特别说明时，官网和公众号都要转换；用户明确只要一路才省略另一路。公众号读 `processed.md`，不读官网 Hugo 稿。
 
 飞书任务结束时（提示里有 `message_id`）：**成功或失败都要**跑 `reply-preview`。IDE 里没有 `message_id` 则不要发卡片。
 
@@ -92,19 +92,21 @@ flowchart TB
     se["./install.sh"]
   end
 
-  subgraph enrichFlow["补全 + 链接"]
-    ei[enrich-doc inspect] --> gen[Agent 生成字段] --> ea[enrich-doc apply] --> rp1[reply-preview]
-  end
-
-  subgraph siteFlow["官网预览 + 链接"]
+  subgraph convertFlow["转换预览（默认两路）"]
     dl[download-feishu-doc] --> cw[convert-website]
     cw --> cm[compress-media]
     cm --> loc[deploy-local]
-    loc --> rp2[reply-preview]
+    loc --> wx[convert-wechat]
+    wx --> rp2[reply-preview]
   end
 
-  subgraph wechatFlow["公众号预览 / 只丢链接"]
-    siteSeq[官网序列] --> wx[convert-wechat] --> rp3[reply-preview]
+  subgraph enrichFlow["补全（不转换）"]
+    ei[enrich-doc inspect] --> gen[Agent 生成字段] --> ea[enrich-doc apply] --> rp1[reply-preview]
+  end
+
+  subgraph oneShot["用户明确只要一路"]
+    onlySite["只要官网：省略 convert-wechat"]
+    onlyWx["只要公众号：省略 convert-website，仍读 processed.md"]
   end
 
   subgraph publishFlow["发布 + sk + 链接"]

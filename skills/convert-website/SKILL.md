@@ -23,13 +23,14 @@ convert-website/
 
 ## 何时调用
 
-用户给了飞书文档链接时，先跑 `download-feishu-doc`（同一链接也要重新下载），再跑本 Skill。不要直接用上次的 `processed.md`。仅当本轮已经下载过、或用户没有给新链接时，才读 `data/last-job.json` 里的 processed.md。官网预览链路：
+用户给了飞书文档链接时，先跑 `download-feishu-doc`（同一链接也要重新下载），再跑本 Skill。不要直接用上次的 `processed.md`。仅当本轮已经下载过、或用户没有给新链接时，才读 `data/last-job.json` 里的 processed.md。没有特别说明时，官网和公众号都要转换：
 
 ```mermaid
 flowchart LR
   dl[download-feishu-doc] --> cw[convert-website]
   cw --> cm[compress-media]
   cm --> loc[deploy-local]
+  loc --> wx[convert-wechat]
 ```
 
 ## 命令

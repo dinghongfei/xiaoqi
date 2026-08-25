@@ -13,6 +13,25 @@ def test_unescape_feishu_text():
     assert unescape_feishu_text(r"2026\-02\-14T10:00:00\+08:00") == "2026-02-14T10:00:00+08:00"
 
 
+def test_prepare_feishu_markdown_turns_title_tag_into_h1():
+    from parser.feishu_text import prepare_feishu_markdown
+
+    raw = "<title>测试飞书云文档转换为公众号文章1</title>\n\n# 一、什么是具身智能\n\n正文\n"
+    out = prepare_feishu_markdown(raw)
+    assert out.startswith("# 测试飞书云文档转换为公众号文章1\n")
+    assert "<title>" not in out
+    assert "# 一、什么是具身智能" in out
+
+
+def test_prepare_feishu_markdown_does_not_duplicate_same_h1():
+    from parser.feishu_text import prepare_feishu_markdown
+
+    raw = "<title>同一标题</title>\n\n# 同一标题\n\n正文\n"
+    out = prepare_feishu_markdown(raw)
+    assert out.startswith("# 同一标题\n")
+    assert out.count("# 同一标题") == 1
+
+
 def test_normalize_categories_from_string():
     assert normalize_categories(r"\- Research") == ["Research"]
 
