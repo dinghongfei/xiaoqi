@@ -2,6 +2,8 @@
 set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
+# shellcheck source=process.sh
+source "$PROJECT_ROOT/scripts/process.sh"
 
 DATA_DIR="$PROJECT_ROOT/data/run"
 LOG_DIR="$PROJECT_ROOT/data/logs"
@@ -11,15 +13,6 @@ BOT_PID="$DATA_DIR/bot.pid"
 HTTP_PID="$DATA_DIR/preview.pid"
 BOT_LOG="$LOG_DIR/bot.log"
 HTTP_LOG="$LOG_DIR/preview-http.log"
-
-_running() {
-  local pidfile="$1"
-  [[ -f "$pidfile" ]] || return 1
-  local pid
-  pid="$(cat "$pidfile")"
-  [[ -n "$pid" ]] || return 1
-  kill -0 "$pid" 2>/dev/null
-}
 
 # 从当前进程组拆出去，避免助手执行完命令后把预览/飞书进程一起杀掉。
 _detach() {
@@ -57,38 +50,29 @@ except OSError as exc:
 PY
 }
 
-if _running "$BOT_PID" && _running "$HTTP_PID"; then
-  echo "已在运行：bot pid=$(cat "$BOT_PID")  preview pid=$(cat "$HTTP_PID")"
-  echo "预览 http://127.0.0.1:1314/"
-  exit 0
-fi
-
 if [[ ! -f "$PROJECT_ROOT/.env" ]]; then
   echo "缺少 .env。请对助手说「安装环境」，把飞书 App ID 和 Secret 发给它。"
   exit 1
 fi
 
-if ! _running "$HTTP_PID"; then
-  _detach "$HTTP_PID" "$HTTP_LOG" uv run bot preview-http
-fi
+stop_project_services
 
-if ! _running "$BOT_PID"; then
-  _detach "$BOT_PID" "$BOT_LOG" uv run bot serve
-fi
+_detach "$HTTP_PID" "$HTTP_LOG" uv run bot preview-http
+_detach "$BOT_PID" "$BOT_LOG" uv run bot serve
 
 ok=0
 for _ in $(seq 1 40); do
-  if curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:1314/"; then
+  if curl -sf -o /dev/null --max-time 1 "http://127.0.0.1:${PREVIEW_PORT}/"; then
     ok=1
     break
   fi
   sleep 0.25
 done
 if [[ "$ok" -ne 1 ]]; then
-  echo "预览服务没有在 http://127.0.0.1:1314/ 起来，请看日志 $HTTP_LOG" >&2
+  echo "预览服务没有在 http://127.0.0.1:${PREVIEW_PORT}/ 起来，请看日志 $HTTP_LOG" >&2
   exit 1
 fi
 
 echo "已启动"
 echo "  飞书进程 pid=$(cat "$BOT_PID")  日志 $BOT_LOG"
-echo "  预览 HTTP pid=$(cat "$HTTP_PID")  http://127.0.0.1:1314/  日志 $HTTP_LOG"
+echo "  预览 HTTP pid=$(cat "$HTTP_PID")  http://127.0.0.1:${PREVIEW_PORT}/  日志 $HTTP_LOG"
