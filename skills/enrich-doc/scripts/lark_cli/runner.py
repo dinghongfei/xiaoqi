@@ -31,6 +31,8 @@ _UNSUPPORTED = (
 )
 
 _PROBE_PROFILE = "xiaoqi"
+_HELP_HEADING = re.compile(r"^([^\s:][^:]*)\s*:\s*$")
+_HELP_SECTION_ITEM = re.compile(r"^[ \t]+(\S+)(?:[ \t]+|$)")
 
 
 class LarkCliError(Exception):
@@ -107,6 +109,40 @@ def _shorten_lark_error_message(message: str) -> str:
     return msg[:500]
 
 
+def _section_commands(help_text: str, heading: str) -> frozenset[str]:
+    """First-column command names under a top-level help heading.
+
+    Official ``lark-cli --help`` lists ``profile`` / ``config`` under
+    ``CLI management:``, which is not the same as the global ``--profile`` flag.
+    """
+    want = heading.strip().rstrip(":").casefold()
+    lines = help_text.splitlines()
+    start: int | None = None
+    for i, raw in enumerate(lines):
+        matched = _HELP_HEADING.match(raw)
+        if matched and matched.group(1).strip().casefold() == want:
+            start = i + 1
+            break
+    if start is None:
+        return frozenset()
+
+    names: set[str] = set()
+    for raw in lines[start:]:
+        if not raw.strip():
+            continue
+        if _HELP_HEADING.match(raw):
+            break
+        item = _HELP_SECTION_ITEM.match(raw)
+        if item is None:
+            break
+        names.add(item.group(1).casefold())
+    return frozenset(names)
+
+
+def _cli_management_commands(help_text: str) -> frozenset[str]:
+    return _section_commands(help_text, "CLI management")
+
+
 def _run_help(cmd: list[str]) -> str | None:
     try:
         proc = subprocess.run(
@@ -151,10 +187,10 @@ def looks_like_flag_failure(text: str) -> bool:
 
 
 def _accepts_global_args(bin_path: str, extra: list[str]) -> bool:
-    """Help can list a flag that the wrapper still rejects on a real invocation.
+    """Help can list a command that the wrapper still rejects on a real invocation.
 
     Probe without ``--help``: some sandboxes forward help to the official CLI
-    (so help contains ``--profile``) but reject the flag on execute.
+    (so ``CLI management:`` lists ``profile``) but reject ``--profile`` on execute.
     """
     text = _run_help([bin_path, *extra])
     if text is None:
@@ -198,7 +234,8 @@ def probe_lark_cli(bin_path: str) -> CliCapabilities:
     if top is None:
         return CliCapabilities.none()
 
-    has_profile = "--profile" in top and _accepts_global_args(
+    mgmt = _cli_management_commands(top)
+    has_profile = "profile" in mgmt and _accepts_global_args(
         bin_path, ["--profile", _PROBE_PROFILE]
     )
     has_as = bool(re.search(r"--as(?:\s|=|$)", top)) and _accepts_global_args(
@@ -210,10 +247,8 @@ def probe_lark_cli(bin_path: str) -> CliCapabilities:
     has_config = False
     if config_help is not None and not looks_like_flag_failure(config_help):
         low = config_help.lower()
-        has_config = "init" in low or "show" in low or bool(
-            re.search(r"(?m)^\s*config\b", top)
-        )
-    elif re.search(r"(?m)^\s*config\b", top) and not looks_like_flag_failure(top):
+        has_config = "init" in low or "show" in low or "config" in mgmt
+    elif "config" in mgmt and not looks_like_flag_failure(top):
         has_config = True
 
     if has_config and not has_profile:

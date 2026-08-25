@@ -26,7 +26,8 @@ def ensure_lark_cli_config(
     that named profile without switching the globally active one.
 
     Skip entirely when this binary has no ``config`` subcommand (sandbox CLIs),
-    or when ``--profile`` is listed in help but cannot actually be executed.
+    or when ``CLI management:`` lists ``profile`` but ``--profile`` cannot
+    actually be executed.
     """
     if not app_id or not app_secret:
         return

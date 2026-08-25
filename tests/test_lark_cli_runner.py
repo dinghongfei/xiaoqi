@@ -12,13 +12,46 @@ from lark_cli.runner import (
     CliCapabilities,
     LarkCliError,
     LarkCliRunner,
+    _cli_management_commands,
     _parse_cli_stdout,
     _shorten_lark_error_message,
     probe_lark_cli,
 )
 
-FULL_HELP = "Usage:\n  lark-cli --profile NAME --as bot --json\n  config  Manage config"
+FULL_HELP = """Usage:
+  lark-cli <command> [flags]
+  lark-cli --as bot --json
+
+CLI management:
+  auth        OAuth credentials
+  config      Global CLI configuration management
+  profile     Manage configuration profiles
+
+Flags:
+      --as string
+      --json
+      --profile string
+"""
 CFG_HELP = "Usage: lark-cli config\n  init\n  show"
+
+HELP_PROFILE_FLAG_ONLY = """Usage: lark-cli
+CLI management:
+  auth        OAuth credentials
+  config      Global CLI configuration management
+Flags:
+      --as string
+      --json
+      --profile string
+"""
+
+HELP_PROFILE_IN_MGMT_NO_FLAG = """Usage: lark-cli --as bot --json
+CLI management:
+  config      Global CLI configuration management
+  profile     Manage configuration profiles
+Flags:
+      --as string
+      --json
+"""
 
 
 def _full_cli_help(cmd: list[str]) -> str:
@@ -36,7 +69,7 @@ def _sandbox_help(cmd: list[str]) -> str:
 
 
 def _lying_help(cmd: list[str]) -> str:
-    """Help lists --profile; executing the flag is rejected."""
+    """CLI management lists profile; executing --profile is rejected."""
     if cmd[-1:] == ["--help"] and "--profile" not in cmd and "config" not in cmd:
         return FULL_HELP
     if "config" in cmd:
@@ -44,6 +77,20 @@ def _lying_help(cmd: list[str]) -> str:
     if "--profile" in cmd or "--as" in cmd:
         return "不支持 --profile"
     return FULL_HELP
+
+
+def _flag_only_help(cmd: list[str]) -> str:
+    if "config" in cmd:
+        return CFG_HELP
+    if "--profile" in cmd or "--as" in cmd:
+        return HELP_PROFILE_FLAG_ONLY
+    return HELP_PROFILE_FLAG_ONLY
+
+
+def _mgmt_profile_help(cmd: list[str]) -> str:
+    if "config" in cmd:
+        return CFG_HELP
+    return HELP_PROFILE_IN_MGMT_NO_FLAG
 
 FULL = CliCapabilities.full()
 RESTRICTED = CliCapabilities.none()
@@ -199,6 +246,39 @@ def test_lark_cli_error_permission_flag():
     assert err.is_permission_denied
 
 
+def test_cli_management_parses_command_names_not_flags():
+    names = _cli_management_commands(FULL_HELP)
+    assert names == frozenset({"auth", "config", "profile"})
+    assert "--profile" not in names
+
+    flag_only = _cli_management_commands(HELP_PROFILE_FLAG_ONLY)
+    assert "config" in flag_only
+    assert "profile" not in flag_only
+
+    real = """
+Lark domains:
+  docs        Document and content operations
+
+CLI management:
+  auth        OAuth credentials and authorization management
+  config      Global CLI configuration management
+  doctor      CLI health check: config, auth, and connectivity
+  profile     Manage configuration profiles
+  update      Update lark-cli to the latest version
+
+Additional Commands:
+  help        Help about any command
+  whoami      Show the current effective identity, app, profile, and token status
+
+Flags:
+      --profile string   use a specific profile
+"""
+    parsed = _cli_management_commands(real)
+    assert parsed == frozenset({"auth", "config", "doctor", "profile", "update"})
+    assert "whoami" not in parsed
+    assert "help" not in parsed
+
+
 def test_probe_detects_full_help():
     probe_lark_cli.cache_clear()
     with patch("lark_cli.runner._run_help", side_effect=_full_cli_help):
@@ -228,6 +308,23 @@ def test_probe_help_lists_profile_but_execute_rejects():
     assert not caps.has_profile
     assert not caps.has_as
     assert not caps.has_config
+    probe_lark_cli.cache_clear()
+
+
+def test_probe_ignores_profile_flag_outside_cli_management():
+    probe_lark_cli.cache_clear()
+    with patch("lark_cli.runner._run_help", side_effect=_flag_only_help):
+        caps = probe_lark_cli("flag-only-cli")
+    assert not caps.has_profile
+    probe_lark_cli.cache_clear()
+
+
+def test_probe_uses_cli_management_profile_without_flag_text():
+    probe_lark_cli.cache_clear()
+    with patch("lark_cli.runner._run_help", side_effect=_mgmt_profile_help):
+        caps = probe_lark_cli("mgmt-cli")
+    assert caps.has_profile
+    assert caps.has_config
     probe_lark_cli.cache_clear()
 
 
