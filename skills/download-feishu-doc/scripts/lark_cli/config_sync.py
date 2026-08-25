@@ -6,6 +6,8 @@ import json
 import logging
 import subprocess
 
+from lark_cli.runner import CliCapabilities, probe_lark_cli
+
 logger = logging.getLogger(__name__)
 
 
@@ -15,14 +17,22 @@ def ensure_lark_cli_config(
     *,
     cli_bin: str,
     profile: str,
+    capabilities: CliCapabilities | None = None,
 ) -> None:
     """Ensure lark-cli uses the same app credentials as the bot.
 
     Always target ``LARK_CLI_PROFILE``: ``config show`` / ``config init``
     pass ``--profile``, and init also uses ``--name`` so it appends/updates
     that named profile without switching the globally active one.
+
+    Skip entirely when this binary has no ``config`` subcommand (sandbox CLIs).
     """
     if not app_id or not app_secret:
+        return
+
+    caps = capabilities if capabilities is not None else probe_lark_cli(cli_bin)
+    if not caps.has_config:
+        logger.debug("skip lark-cli config sync: binary has no config command")
         return
 
     profile_name = (profile or "").strip()

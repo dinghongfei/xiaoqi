@@ -263,6 +263,8 @@ class FeishuClient:
             bin_path=cli_bin,
             identity=cli_identity,
             profile=cli_profile,
+            app_id=app_id,
+            app_secret=app_secret,
         )
 
     def fetch_doc_markdown(self, doc: str | DocRef) -> tuple[str, str]:
