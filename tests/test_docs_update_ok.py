@@ -72,7 +72,7 @@ def test_find_enrichment_block_ids_skips_nested_cells():
         '<table id="tbl"><tr><td><p id="c1">slug</p></td>'
         '<td><p id="c2">说明</p></td><td><p id="c3">val</p></td></tr></table>'
         '<h1 id="img">图片</h1>'
-        '<p id="prompt">封面提示词</p>'
+        '<img id="cover" href="cover.png"/>'
         '<hr id="line"/>'
     )
-    assert find_enrichment_block_ids(xml) == ["attr", "tbl", "img", "prompt", "line"]
+    assert find_enrichment_block_ids(xml) == ["attr", "tbl", "img", "cover", "line"]

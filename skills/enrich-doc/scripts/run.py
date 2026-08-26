@@ -73,8 +73,8 @@ def _load_apply_payload(args: argparse.Namespace) -> dict:
         value = getattr(args, field, "") or ""
         if str(value).strip():
             data[field] = value
-    if args.cover_prompt.strip():
-        data["cover_prompt"] = args.cover_prompt.strip()
+    if args.cover_image.strip():
+        data["cover_image"] = args.cover_image.strip()
     return data
 
 
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser.add_argument("--author", default="")
     apply_parser.add_argument("--categories", default="")
     apply_parser.add_argument("--summary", default="")
-    apply_parser.add_argument("--cover-prompt", default="")
+    apply_parser.add_argument("--cover-image", default="")
     apply_parser.add_argument("--json", dest="metadata_json", default="")
     apply_parser.add_argument("--json-file", default="")
 

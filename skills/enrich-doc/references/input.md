@@ -4,9 +4,9 @@
 
 ```
 inspect --token 'DOCX_TOKEN'
-apply --token 'DOCX_TOKEN' --slug … --lang zh --title … --date YYYY-MM-DD --author … --categories … --summary … [--cover-prompt …]
+apply --token 'DOCX_TOKEN' --slug … --lang zh --title … --date YYYY-MM-DD --author … --categories … --summary … [--cover-image data/jobs/<token>/cover.png]
 ```
 
-不要配置 `LLM_*`：字段由编排该 Skill 的 Agent 生成。脚本不调用 lark-cli。
+不要配置 `LLM_*`：字段由编排该 Skill 的 Agent 生成。缺封面时由 Agent 生图存盘，不要写封面提示词。脚本不调用 lark-cli。
 
-apply 只写本地 `processed.md` 与 `enrich.xml`。写回飞书由 Agent 执行 `docs +update append` → fetch xml `--detail with-ids` → `enrichment-ids` → `block_move_after`，`--doc` 一律用 token。失败则只保留本地稿。
+apply 只写本地 `processed.md` 与 `enrich.xml`。写回飞书由 Agent 执行 `docs +update append` → fetch xml `--detail with-ids` → `enrichment-ids` → `block_move_after`；缺封面再 `docs +media-insert --file cover.png` 并把图片移到「图片」标题后。`--doc` 一律用 token。失败则只保留本地稿。

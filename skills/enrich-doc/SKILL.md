@@ -1,6 +1,6 @@
 ---
 name: enrich-doc
-description: 读取已拉取的飞书正文线索，由当前 Agent 生成属性表和封面提示词，写入本地 processed.md 与 enrich.xml。写回云文档由 Agent 用 lark-cli 完成。脚本不调用 LLM、不调用 lark-cli。不写 Hugo、不部署。
+description: 读取已拉取的飞书正文线索，由当前 Agent 生成属性表；缺封面时由你生图并回写飞书，不要写封面提示词。脚本写入本地 processed.md 与 enrich.xml。写回云文档由 Agent 用 lark-cli 完成。脚本不调用 LLM、不调用 lark-cli。不写 Hugo、不部署。
 ---
 
 # 补全元数据
@@ -58,18 +58,32 @@ uv run python <本Skill目录>/scripts/run.py enrichment-ids --xml 'data/jobs/<t
 lark-cli docs +update --doc 'PAGE_ID' --command block_move_after --block-id 'PAGE_ID' --src-block-ids 'id1,id2,…'
 ```
 
+若 inspect 的 `need_cover` 为 true，append 之后还要把你生成的封面图插进「图片」区（不要把生图提示词写进文档）：
+
+```bash
+lark-cli docs +media-insert --doc 'DOCX_TOKEN' --file 'data/jobs/<token>/cover.png' --align center
+```
+
+用返回的 `block_id`，移到「图片」标题后面：
+
+```bash
+lark-cli docs +update --doc 'PAGE_ID' --command block_move_after --block-id '<图片标题id>' --src-block-ids '<image_block_id>'
+```
+
 写回若报没有编辑权限，只保留本地 `processed.md`，不要假装已写回云文档。
 
 ## 命令
 
-必须分两步。先 inspect，再由你生成字段，最后 apply。
+必须分两步。先 inspect，再由你生成字段（缺封面则先生图存盘），最后 apply。
 
 ```mermaid
 flowchart LR
   fetch[你 lark-cli fetch] --> inspect[enrich-doc inspect]
   inspect --> gen[Agent 生成字段]
-  gen --> apply[enrich-doc apply]
-  apply --> write[你 lark-cli 写回云文档]
+  gen --> img[缺封面则生图存盘]
+  img --> apply[enrich-doc apply]
+  apply --> write[你 lark-cli 写回属性]
+  write --> insert[缺封面则 media-insert]
 ```
 
 ```bash
@@ -77,12 +91,12 @@ uv run python <本Skill目录>/scripts/run.py inspect --token 'DOCX_TOKEN'
 uv run python <本Skill目录>/scripts/run.py apply --token 'DOCX_TOKEN' \
   --slug demo-article --lang zh --title '标题' --date 2026-08-22 \
   --author '内容编辑' --categories '具身智能' --summary '摘要' \
-  --cover-prompt '封面提示词'
+  --cover-image 'data/jobs/<token>/cover.png'
 ```
 
-`inspect` 成功时标准输出是 JSON（含 `article_text`、`doc_title`、`need_cover_prompt`、`default_date` 等）。失败则打印中文原因并退出码 1，此时不要 apply。`can_edit` 恒为 `null`（是否可写回由你执行 lark-cli 时看结果）。没有本地稿时先 fetch 或先跑 `download-feishu-doc`。
+`inspect` 成功时标准输出是 JSON（含 `article_text`、`doc_title`、`need_cover`、`default_date` 等）。失败则打印中文原因并退出码 1，此时不要 apply。`can_edit` 恒为 `null`（是否可写回由你执行 lark-cli 时看结果）。没有本地稿时先 fetch 或先跑 `download-feishu-doc`。
 
-也可用 `--json '{...}'` 或 `--json-file path.json` 把字段一次传给 apply。可用 `--markdown` 指向已保存的 fetch 结果。
+也可用 `--json '{...}'` 或 `--json-file path.json` 把字段一次传给 apply。可用 `--markdown` 指向已保存的 fetch 结果。`need_cover` 为 false 时不要传 `--cover-image`。
 
 ## 依赖
 
@@ -96,14 +110,19 @@ uv run python <本Skill目录>/scripts/run.py apply --token 'DOCX_TOKEN' \
 
 必填：`slug`、`lang`、`title`、`date`、`author`、`categories`、`summary`。
 
-1. **语言（必须先判）** 文章有中文版与英文版。正文以中文为主 → `lang=zh`，title / summary / categories / cover_prompt 都用中文。正文以英文为主 → `lang=en`，对应字段都用英文。不要把中文稿写成英文标题摘要，反之亦然。
+1. **语言（必须先判）** 文章有中文版与英文版。正文以中文为主 → `lang=zh`，title / summary / categories 都用中文。正文以英文为主 → `lang=en`，对应字段都用英文。不要把中文稿写成英文标题摘要，反之亦然。
 2. **title** 结合 `doc_title`（飞书文档标题）与正文。若 `doc_title` 非空、与主题高度吻合且语言一致，则直接用它（可只做空白/标点规范化）。否则按正文总结一个简洁准确的 title，语言与正文一致。
 3. **slug** 英文 kebab-case（小写字母、数字、连字符），必须能从 title 的核心主题联想到；中文 title 用意译英文词，英文 title 提炼关键词。不要用与 title 无关的泛化词。
 4. **date** `YYYY-MM-DD`，不得晚于今天。正文无明显日期时用 inspect 里的 `default_date`。
 5. **author** 默认「内容编辑」（inspect 的 `default_author`）；正文明确写了作者则用正文作者。英文稿未写作者时仍可用「内容编辑」。
 6. **categories** 1～3 个。中文稿用中文分类、中文逗号「，」分隔；英文稿用英文分类、英文逗号 `", "` 分隔。
 7. **summary** 约 100 字/词以内，概括核心，语言与正文一致。
-8. 若 `need_cover_prompt` 为 true：必须给 `--cover-prompt`（画面主体、风格、色调；语言与正文一致；不要出现网址）。为 false 时不要传封面提示词。
+8. 若 `need_cover` 为 true：你必须自己生成一张封面图再回写，**不要**把生图提示词写进文档、`processed.md` 或 `enrich.xml`，也不要传 `--cover-prompt`。
+   - 根据 title / summary / 正文构思画面（主体、风格、色调与正文语言一致；横版；不要出现网址、商标、大段文字）。
+   - 用你的生图能力出图，保存到 `data/jobs/<token>/cover.png`（jpg / webp 也可）。
+   - apply 时传 `--cover-image 'data/jobs/<token>/cover.png'`。
+   - 写回属性表后，用上面的 `docs +media-insert` 把这张图插进「图片」区，再把图片 block 移到「图片」标题后面。
+   - `need_cover` 为 false 时不要生图、不要插图。
 
 `doc_title` 与正文语言不一致时，以正文语言为准。
 
@@ -112,5 +131,5 @@ uv run python <本Skill目录>/scripts/run.py apply --token 'DOCX_TOKEN' \
 - `inspect`：读本地稿（或 `--markdown`）；云文档对应的本地稿已有可解析属性表则拒绝；几乎没有文字则拒绝。
 - `apply`：同样检查后校验字段，写入本地 `processed.md`（不改 `raw.md`）和 `data/jobs/<token>/enrich.xml`。`processed.md` 结构为：第一行是由 `raw.md` 开头 `<title>` 转成的 markdown 一级标题，下面是属性/图片，再然后是文章正文。
 - 脚本**不**写回飞书；写回步骤见上文 lark-cli。
-- 正文插图不算封面：仅当「图片」区已有图时才跳过封面提示词。
+- 正文插图不算封面：仅当「图片」区已有图时才跳过生图。
 - 不写 Hugo、不压缩、不部署。

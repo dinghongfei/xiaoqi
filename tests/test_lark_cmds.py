@@ -16,6 +16,10 @@ def test_cmds_omit_profile_and_as():
     assert " --type whiteboard" in lark_cmds.media_download(
         "wb", "/tmp/wb", whiteboard=True
     )
+    insert = lark_cmds.media_insert("doxcn1", "data/jobs/tok/cover.png")
+    assert "--file 'data/jobs/tok/cover.png'" in insert
+    assert "--as" not in insert
+    assert "--profile" not in insert
     assert "不要传 feishu.doubao.com" in lark_cmds.AUTH_HINT
 
 

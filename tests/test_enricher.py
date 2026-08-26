@@ -102,7 +102,7 @@ def test_image_section_has_media():
     assert not image_section_has_media("正文\n\n![body](tok)\n无图片区")
 
 
-def test_build_enrichment_xml_includes_table_hr_and_prompt():
+def test_build_enrichment_xml_includes_table_hr_and_image_heading():
     xml = build_enrichment_xml(
         {
             "slug": "demo-slug",
@@ -113,7 +113,7 @@ def test_build_enrichment_xml_includes_table_hr_and_prompt():
             "categories": ["具身智能"],
             "summary": "摘要",
         },
-        cover_prompt="蓝白科技封面，机器人剪影",
+        include_image_section=True,
         include_image_heading=True,
     )
     assert xml.startswith("<h1>属性</h1>")
@@ -123,7 +123,7 @@ def test_build_enrichment_xml_includes_table_hr_and_prompt():
     assert "<td><p>zh</p></td>" in xml
     assert "A &amp; B" in xml
     assert "<h1>图片</h1>" in xml
-    assert "蓝白科技封面" in xml
+    assert "封面提示词" not in xml
     assert xml.endswith("<hr/>")
 
 
@@ -138,16 +138,15 @@ def test_build_enrichment_xml_skips_image_heading_when_requested():
             "categories": ["技术报告"],
             "summary": "摘要",
         },
-        cover_prompt="提示词",
+        include_image_section=True,
         include_image_heading=False,
     )
     assert "<h1>属性</h1>" in xml
     assert "<h1>图片</h1>" not in xml
-    assert "<p>提示词</p>" in xml
     assert xml.endswith("<hr/>")
 
 
-def test_build_enrichment_xml_no_prompt_when_images_exist():
+def test_build_enrichment_xml_no_image_section_when_cover_exists():
     xml = build_enrichment_xml(
         {
             "slug": "demo-slug",
@@ -158,7 +157,7 @@ def test_build_enrichment_xml_no_prompt_when_images_exist():
             "categories": ["技术报告"],
             "summary": "摘要",
         },
-        cover_prompt=None,
+        include_image_section=False,
     )
     assert "<h1>属性</h1>" in xml
     assert "<h1>图片</h1>" not in xml
@@ -179,9 +178,10 @@ def test_inspect_ready_without_cover_image():
     assert result.status == "ready"
     assert result.doc_title == "飞书原标题"
     assert "机器人" in result.article_text
-    assert result.need_cover_prompt is True
+    assert result.need_cover is True
     assert result.has_image_heading is False
     blob = result.to_dict()
+    assert blob["need_cover"] is True
     assert blob["required_fields"][0] == "slug"
     assert "article_text" in blob
     assert blob["can_edit"] is None
@@ -194,7 +194,7 @@ def test_inspect_skips_cover_when_image_section_has_media():
     )
 
     assert result.status == "ready"
-    assert result.need_cover_prompt is False
+    assert result.need_cover is False
     assert result.has_image_heading is True
 
 
@@ -208,25 +208,27 @@ def test_inspect_rejects_existing_metadata():
     assert "已有属性信息" in result.message
 
 
-def test_apply_success_without_images_writes_cover_prompt():
+def test_apply_success_without_images_writes_image_section():
     result = Enricher().apply_metadata(
         DocRef(
             kind="docx",
             token="TokenOne",
             url="https://example.feishu.cn/docx/TokenOne",
         ),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        dict(VALID_METADATA),
         markdown_text="正文：关于机器人的文章",
     )
 
     assert result.status == "enriched"
     assert result.slug == "demo-article"
     assert result.doc_url == "https://example.feishu.cn/docx/TokenOne"
-    assert result.cover_prompt == "封面提示词"
+    assert result.need_cover is True
+    assert result.cover_image == ""
     assert result.wrote_cloud is False
     assert "<h1>图片</h1>" in result.enrichment_xml
-    assert "封面提示词" in result.enrichment_xml
+    assert "封面提示词" not in result.enrichment_xml
     assert "lark-cli docs +update" in result.message
+    assert "media-insert" in result.message
     assert "--doc 'TokenOne'" in result.message
     for line in result.message.splitlines():
         if line.startswith("lark-cli"):
@@ -235,19 +237,19 @@ def test_apply_success_without_images_writes_cover_prompt():
             assert "https://" not in line
 
 
-def test_apply_still_writes_cover_prompt_when_body_has_images():
+def test_apply_still_needs_cover_when_body_has_images():
     result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        dict(VALID_METADATA),
         markdown_text="正文\n\n![diagram](img_token)\n更多文字",
     )
 
     assert result.status == "enriched"
-    assert result.cover_prompt == "封面提示词"
+    assert result.need_cover is True
     assert "<h1>图片</h1>" in result.enrichment_xml
 
 
-def test_apply_skips_cover_prompt_when_image_section_has_media():
+def test_apply_skips_cover_when_image_section_has_media():
     result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         dict(VALID_METADATA),
@@ -255,26 +257,39 @@ def test_apply_skips_cover_prompt_when_image_section_has_media():
     )
 
     assert result.status == "enriched"
-    assert result.cover_prompt == ""
+    assert result.need_cover is False
+    assert result.cover_image == ""
     assert "<h1>图片</h1>" not in result.enrichment_xml
 
 
 def test_apply_skips_image_heading_when_already_present():
     result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        dict(VALID_METADATA),
         markdown_text="# 图片\n\n旧提示\n\n正文关于机器人",
     )
 
     assert result.status == "enriched"
-    assert "封面提示词" in result.enrichment_xml
+    assert result.need_cover is True
     assert "<h1>图片</h1>" not in result.enrichment_xml
+    assert result.enrichment_xml.endswith("<hr/>")
+
+
+def test_apply_ignores_legacy_cover_prompt():
+    result = Enricher().apply_metadata(
+        DocRef(kind="docx", token="TokenOne"),
+        dict(VALID_METADATA),
+        markdown_text="足够长的正文内容用于补全",
+    )
+
+    assert result.status == "enriched"
+    assert "封面提示词" not in result.enrichment_xml
 
 
 def test_apply_rejects_existing_metadata():
     result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        dict(VALID_METADATA),
         markdown_text=f"{SAMPLE_TABLE}\n---\n正文",
     )
 
@@ -282,21 +297,10 @@ def test_apply_rejects_existing_metadata():
     assert "已有属性信息" in result.message
 
 
-def test_apply_requires_cover_prompt_when_needed():
-    result = Enricher().apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
-        dict(VALID_METADATA),
-        markdown_text="足够长的正文内容用于补全",
-    )
-
-    assert result.status == "error"
-    assert "cover_prompt" in result.message
-
-
 def test_apply_rejects_invalid_metadata():
     result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
-        {"slug": "Bad Slug", "cover_prompt": "封面"},
+        {"slug": "Bad Slug"},
         markdown_text="足够长的正文内容用于补全",
     )
 
@@ -307,14 +311,15 @@ def test_apply_rejects_invalid_metadata():
 def test_build_enrichment_markdown_is_parseable():
     prefix = build_enrichment_markdown(
         dict(VALID_METADATA),
-        cover_prompt="蓝白科技封面",
+        include_image_section=True,
+        cover_image_md="![封面](cover.png)",
         include_image_heading=True,
     )
     doc = split_doc_content(prefix + "\n正文关于机器人")
     assert doc.metadata["slug"] == "demo-article"
     assert doc.metadata["lang"] == "zh-cn"
     assert "正文关于机器人" in doc.body
-    assert "蓝白科技封面" in doc.metadata_region
+    assert "![封面](cover.png)" in doc.metadata_region
     assert "# 属性" in prefix
     assert prefix.rstrip().endswith("---")
 
@@ -393,7 +398,7 @@ def test_apply_writes_local_files(tmp_path: Path):
 
     result = Enricher(settings=settings).apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        dict(VALID_METADATA),
     )
 
     assert result.status == "enriched"
@@ -414,9 +419,36 @@ def test_apply_writes_local_files(tmp_path: Path):
     assert raw_text == original_raw
     assert "# 属性" not in raw_text
     assert (work / "enrich.xml").is_file()
+    assert "# 图片" in processed_text
+    assert "封面提示词" not in processed_text
+    assert "media-insert" in result.message
     job = load_last_job(settings)
     assert job["slug"] == "demo-article"
     assert job["metadata_warning"] == ""
+
+
+def test_apply_copies_cover_image(tmp_path: Path):
+    settings = _tmp_settings(tmp_path)
+    work = Path(settings.jobs_dir) / "TokenOne"
+    work.mkdir()
+    (work / "raw.md").write_text("正文：关于机器人的文章\n", encoding="utf-8")
+    src = tmp_path / "generated.png"
+    src.write_bytes(b"fake-png")
+
+    result = Enricher(settings=settings).apply_metadata(
+        DocRef(kind="docx", token="TokenOne"),
+        dict(VALID_METADATA),
+        cover_image=str(src),
+    )
+
+    assert result.status == "enriched"
+    dest = work / "cover.png"
+    assert dest.is_file()
+    assert dest.read_bytes() == b"fake-png"
+    processed = (work / "processed.md").read_text(encoding="utf-8")
+    assert "![封面](cover.png)" in processed
+    assert "封面提示词" not in processed
+    assert "cover.png" in result.message
 
 
 def test_inspect_rejects_local_existing_metadata(tmp_path: Path):
@@ -443,7 +475,7 @@ def test_apply_rejects_local_existing_metadata(tmp_path: Path):
 
     result = Enricher(settings=settings).apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        dict(VALID_METADATA),
         markdown_text="正文：关于机器人的文章",
     )
     assert result.status == "error"

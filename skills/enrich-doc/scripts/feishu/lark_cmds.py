@@ -44,6 +44,13 @@ def docs_append_xml(token: str, xml_path: str) -> str:
     )
 
 
+def media_insert(token: str, file_path: str) -> str:
+    return (
+        f"lark-cli docs +media-insert --doc '{token}' "
+        f"--file '{file_path}' --align center"
+    )
+
+
 def docs_move_blocks(page_id: str, src_block_ids: str) -> str:
     return (
         f"lark-cli docs +update --doc '{page_id}' --command block_move_after "

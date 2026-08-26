@@ -199,12 +199,13 @@ def value_for_metadata_table(field: str, value) -> str:
 def build_enrichment_xml(
     metadata: dict,
     *,
-    cover_prompt: str | None = None,
+    include_image_section: bool = False,
     include_image_heading: bool = True,
 ) -> str:
-    """Build write-back XML: 属性(h1) → table → [图片(h1)? → prompt → hr].
+    """Build write-back XML: 属性(h1) → table → [图片(h1)? → hr].
 
-    横线只跟在封面提示词后面；已有封面图、不写提示词时，表格下方不写 hr。
+    封面图由 Agent 生成后用 lark-cli media-insert 插入，不要把生图提示词写进 XML。
+    已有封面图时只写属性表，表格下方不写 hr。
     """
     rows: list[str] = []
     for field in REQUIRED_METADATA_FIELDS:
@@ -227,10 +228,8 @@ def build_enrichment_xml(
         "</tbody>",
         "</table>",
     ]
-    prompt = (cover_prompt or "").strip()
-    if prompt:
+    if include_image_section:
         if include_image_heading:
             parts.append("<h1>图片</h1>")
-        parts.append(f"<p>{_xml_escape(prompt)}</p>")
         parts.append("<hr/>")
     return "".join(parts)

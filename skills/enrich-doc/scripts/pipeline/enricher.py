@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -58,6 +59,7 @@ _ENRICHMENT_H1 = frozenset({"属性", "图片"})
 
 ARTICLE_TEXT_MAX = 20000
 DEFAULT_AUTHOR = "内容编辑"
+_COVER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
 @dataclass
@@ -67,7 +69,7 @@ class InspectResult:
     doc_url: str = ""
     doc_title: str = ""
     article_text: str = ""
-    need_cover_prompt: bool = False
+    need_cover: bool = False
     has_image_heading: bool = False
     default_date: str = ""
     default_author: str = DEFAULT_AUTHOR
@@ -78,7 +80,7 @@ class InspectResult:
             "status": self.status,
             "doc_url": self.doc_url,
             "doc_title": self.doc_title,
-            "need_cover_prompt": self.need_cover_prompt,
+            "need_cover": self.need_cover,
             "has_image_heading": self.has_image_heading,
             "default_date": self.default_date,
             "default_author": self.default_author,
@@ -96,7 +98,8 @@ class EnrichResult:
     status: str  # enriched | error
     message: str
     metadata: dict = field(default_factory=dict)
-    cover_prompt: str = ""
+    cover_image: str = ""
+    need_cover: bool = False
     doc_url: str = ""
     wrote_cloud: bool = False
     local_paths: list[str] = field(default_factory=list)
@@ -193,8 +196,9 @@ def _md_cell(text: str) -> str:
 def build_enrichment_markdown(
     metadata: dict,
     *,
-    cover_prompt: str | None = None,
+    cover_image_md: str | None = None,
     include_image_heading: bool = True,
+    include_image_section: bool = False,
 ) -> str:
     """Markdown equivalent of the Feishu 属性 table, parseable by split_doc_content."""
     rows: list[str] = []
@@ -203,11 +207,12 @@ def build_enrichment_markdown(
         hint = DEFAULT_FIELD_HINTS.get(field, field)
         rows.append(f"| {_md_cell(field)} | {_md_cell(hint)} | {_md_cell(value)} |")
     parts = ["# 属性", "", *rows, ""]
-    prompt = (cover_prompt or "").strip()
-    if prompt:
+    if include_image_section:
         if include_image_heading:
             parts.extend(["# 图片", ""])
-        parts.extend([prompt, ""])
+        image_md = (cover_image_md or "").strip()
+        if image_md:
+            parts.extend([image_md, ""])
     parts.append("---")
     return "\n".join(parts) + "\n"
 
@@ -394,6 +399,8 @@ class Enricher:
         xml_path: Path | None,
         document_id: str,
         local_labels: list[str],
+        need_cover: bool = False,
+        cover_image: str = "",
     ) -> str:
         doc = (document_id or doc_ref.token).strip()
         page_id = document_id or "<page_id>"
@@ -413,7 +420,31 @@ class Enricher:
             f"uv run python skills/enrich-doc/scripts/run.py enrichment-ids --xml '{after_xml}'",
             lark_cmds.docs_move_blocks(page_id, "<block_ids>"),
         ]
+        if need_cover:
+            cover = cover_image or (
+                relpath(Path(self.settings.jobs_dir) / _safe_job_token(doc_ref.token) / "cover.png")
+                if self.settings is not None
+                else "data/jobs/<token>/cover.png"
+            )
+            parts.extend(
+                [
+                    "封面图由你生成后插入（不要把生图提示词写进文档）：",
+                    lark_cmds.media_insert(doc, cover),
+                    "把 media-insert 返回的 block_id 移到「图片」标题后面：",
+                    lark_cmds.docs_move_blocks("<图片标题id>", "<image_block_id>"),
+                ]
+            )
         return "\n".join(parts)
+
+    def _stage_cover_image(self, src: Path, doc_ref: DocRef) -> Path:
+        suffix = src.suffix.lower()
+        if suffix not in _COVER_SUFFIXES:
+            suffix = ".png"
+        dest = job_dir(self.settings, doc_ref.token) / f"cover{suffix}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.resolve() != dest.resolve():
+            shutil.copy2(src, dest)
+        return dest
 
     def _write_local_enrichment(
         self,
@@ -421,8 +452,9 @@ class Enricher:
         *,
         document_id: str,
         metadata: dict,
-        cover_prompt: str,
+        include_image_section: bool,
         include_image_heading: bool,
+        cover_image_md: str | None,
         source_markdown: str = "",
     ) -> list[Path]:
         located = find_local_markdown_files(
@@ -439,8 +471,9 @@ class Enricher:
             break
         prefix = build_enrichment_markdown(
             metadata,
-            cover_prompt=cover_prompt or None,
+            cover_image_md=cover_image_md,
             include_image_heading=include_image_heading,
+            include_image_section=include_image_section,
         )
         paths = [path for path in located if path.name == "processed.md"]
         if not paths and self.settings is not None and source_markdown.strip():
@@ -539,7 +572,7 @@ class Enricher:
             doc_url=doc_url,
             doc_title=extract_feishu_doc_title(raw),
             article_text=article_text[:ARTICLE_TEXT_MAX],
-            need_cover_prompt=not image_section_has_media(raw),
+            need_cover=not image_section_has_media(raw),
             has_image_heading=doc_has_image_heading(raw),
             default_date=default_date_cst(),
             default_author=DEFAULT_AUTHOR,
@@ -551,7 +584,7 @@ class Enricher:
         doc_ref: DocRef,
         data: dict,
         *,
-        cover_prompt: str = "",
+        cover_image: str = "",
         markdown_path: Path | None = None,
         markdown_text: str | None = None,
         document_id: str = "",
@@ -608,18 +641,41 @@ class Enricher:
         has_image_heading = doc_has_image_heading(raw)
         need_cover = not image_section_has_media(raw)
         payload = dict(data)
-        prompt = (cover_prompt or str(payload.pop("cover_prompt", "") or "")).strip()
-        if need_cover:
-            if not prompt:
+        payload.pop("cover_prompt", None)
+        cover_arg = (cover_image or str(payload.pop("cover_image", "") or "")).strip()
+        if not need_cover:
+            cover_arg = ""
+
+        cover_image_md: str | None = None
+        staged_cover = ""
+        if cover_arg:
+            src = Path(cover_arg)
+            if not src.is_file():
                 return EnrichResult(
                     slug="",
                     lang="",
                     status="error",
-                    message=f"❌ [{label}] 缺少封面图提示词 cover_prompt",
+                    message=f"❌ [{label}] 找不到封面图：{src}",
                     doc_url=doc_url,
+                    need_cover=need_cover,
                 )
-        else:
-            prompt = ""
+            suffix = src.suffix.lower()
+            if suffix not in _COVER_SUFFIXES:
+                return EnrichResult(
+                    slug="",
+                    lang="",
+                    status="error",
+                    message=f"❌ [{label}] 封面图须为 png / jpg / webp / gif",
+                    doc_url=doc_url,
+                    need_cover=need_cover,
+                )
+            if self.settings is not None:
+                dest = self._stage_cover_image(src, doc_ref)
+                cover_image_md = f"![封面]({dest.name})"
+                staged_cover = relpath(dest)
+            else:
+                cover_image_md = f"![封面]({src.name})"
+                staged_cover = src.name
 
         try:
             metadata = validate_metadata_fields(payload)
@@ -630,12 +686,14 @@ class Enricher:
                 status="error",
                 message=f"❌ [{label}] {e}",
                 doc_url=doc_url,
+                need_cover=need_cover,
             )
 
-        include_image_heading = bool(prompt) and not has_image_heading
+        include_image_section = need_cover
+        include_image_heading = include_image_section and not has_image_heading
         xml = build_enrichment_xml(
             metadata,
-            cover_prompt=prompt or None,
+            include_image_section=include_image_section,
             include_image_heading=include_image_heading,
         )
         xml_path = self._write_enrich_xml(doc_ref, xml)
@@ -645,8 +703,9 @@ class Enricher:
                 doc_ref,
                 document_id=document_id,
                 metadata=metadata,
-                cover_prompt=prompt,
+                include_image_section=include_image_section,
                 include_image_heading=include_image_heading,
+                cover_image_md=cover_image_md,
                 source_markdown=raw,
             )
         except Exception as e:
@@ -657,7 +716,8 @@ class Enricher:
                 status="error",
                 message=f"❌ [{label}] 写入本地已下载文档失败：{e}",
                 metadata=metadata,
-                cover_prompt=prompt,
+                cover_image=staged_cover,
+                need_cover=need_cover,
                 doc_url=doc_url,
                 enrichment_xml=xml,
                 enrich_xml_path=relpath(xml_path) if xml_path else "",
@@ -666,6 +726,8 @@ class Enricher:
         local_labels = self._local_path_labels(written_local)
         if xml_path is not None:
             local_labels = [*local_labels, relpath(xml_path)]
+        if staged_cover:
+            local_labels = [*local_labels, staged_cover]
         if not local_labels and not xml:
             return EnrichResult(
                 slug=metadata.get("slug", ""),
@@ -676,7 +738,8 @@ class Enricher:
                     "请先运行 download-feishu-doc，再补全元数据。"
                 ),
                 metadata=metadata,
-                cover_prompt=prompt,
+                cover_image=staged_cover,
+                need_cover=need_cover,
                 doc_url=doc_url,
                 enrichment_xml=xml,
             )
@@ -690,9 +753,12 @@ class Enricher:
                 xml_path=xml_path,
                 document_id=document_id,
                 local_labels=local_labels,
+                need_cover=need_cover,
+                cover_image=staged_cover,
             ),
             metadata=metadata,
-            cover_prompt=prompt,
+            cover_image=staged_cover,
+            need_cover=need_cover,
             doc_url=doc_url,
             wrote_cloud=False,
             local_paths=local_labels,
