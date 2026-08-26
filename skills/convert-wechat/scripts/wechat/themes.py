@@ -4,12 +4,6 @@ from __future__ import annotations
 
 import json
 
-THEMES: tuple[tuple[str, str], ...] = (
-    ("classic", "经典"),
-    ("elegant", "优雅"),
-    ("simple", "简洁"),
-)
-
 FONTS: tuple[tuple[str, str, str], ...] = (
     (
         "sans",
@@ -29,11 +23,12 @@ FONTS: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
-SIZES: tuple[int, ...] = (14, 15, 16, 17, 18)
+SIZES: tuple[int, ...] = (12, 14, 16, 18)
 
 COLORS: tuple[tuple[str, str, str], ...] = (
     ("blue", "经典蓝", "#2563EB"),
     ("green", "翡翠绿", "#059669"),
+    ("wechat", "微信绿", "#07C160"),
     ("pink", "樱花粉", "#E85D8C"),
     ("orange", "暖橙", "#EB6106"),
     ("red", "朱红", "#DC2626"),
@@ -46,7 +41,6 @@ COLORS: tuple[tuple[str, str, str], ...] = (
 )
 
 DEFAULTS: dict[str, str | int] = {
-    "theme": "classic",
     "font": "sans",
     "size": 16,
     "accent": "#2563EB",
@@ -235,7 +229,6 @@ ARTICLE_PREVIEW_CSS = """
 
 def theme_payload() -> dict:
     return {
-        "themes": [{"id": key, "label": label} for key, label in THEMES],
         "fonts": {
             key: {"label": label, "stack": stack} for key, label, stack in FONTS
         },

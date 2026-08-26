@@ -14,7 +14,7 @@
   <header class="site-header">
     <div class="site-header__left">
       <a class="site-header__logo" href="{{ "/" | relLangURL }}">{{ site.Title }}</a>
-      <a class="btn-primary" href="{{ "/blog/" | relLangURL }}">{{ if eq site.Language.Lang "en" }}Research{{ else }}演示博客{{ end }}</a>
+      <a class="btn-primary" href="{{ "/blog/" | relLangURL }}">{{ if eq site.Language.Lang "en" }}Website articles{{ else }}官网文章列表{{ end }}</a>
     </div>
     {{ if site.Params.show_i18n }}
     <div class="site-header__right">

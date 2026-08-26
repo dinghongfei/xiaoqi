@@ -9,9 +9,13 @@
         <h2 class="research-list__title">{{ if $zh }}官网文章{{ else }}Website{{ end }}</h2>
       </header>
       {{ if $posts }}
-      <div class="research-list__grid">
+      <div class="preview-home__list">
         {{ range $posts }}
-        {{ partial "research-card.html" . }}
+        <a class="preview-home__item" href="{{ .RelPermalink }}">
+          <p class="preview-home__meta">{{ .Date.Format "2006-01-02" }}</p>
+          <h2 class="preview-home__item-title">{{ .Title }}</h2>
+          <span class="preview-home__more">{{ if $zh }}打开 →{{ else }}Open →{{ end }}</span>
+        </a>
         {{ end }}
       </div>
       {{ else }}
@@ -50,20 +54,20 @@
         root.className = "preview-home__empty";
         return;
       }
-      root.className = "preview-home__wechat-list";
+      root.className = "preview-home__list";
       root.textContent = "";
       articles.forEach(function (item) {
         var a = document.createElement("a");
-        a.className = "preview-home__wechat-item";
+        a.className = "preview-home__item";
         a.href = item.url;
         var meta = document.createElement("p");
-        meta.className = "preview-home__wechat-meta";
-        meta.textContent = item.lang || "";
+        meta.className = "preview-home__meta";
+        meta.textContent = item.date || "";
         var title = document.createElement("h2");
-        title.className = "preview-home__wechat-title";
+        title.className = "preview-home__item-title";
         title.textContent = item.title || item.slug || "";
         var more = document.createElement("span");
-        more.className = "preview-home__wechat-more";
+        more.className = "preview-home__more";
         more.textContent = root.getAttribute("data-open") || "";
         a.appendChild(meta);
         a.appendChild(title);

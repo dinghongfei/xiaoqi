@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from html import unescape
 from pathlib import Path
 
@@ -12,6 +13,11 @@ _FRONT_MATTER_TITLE = re.compile(
     r"^title\s*=\s*(['\"])(.*)\1\s*$",
     re.MULTILINE,
 )
+_FRONT_MATTER_DATE = re.compile(
+    r"^date\s*=\s*(['\"])(.*)\1\s*$",
+    re.MULTILINE,
+)
+_DATE_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 _TRANSLATION_KEY = re.compile(
     r"^translationKey\s*=\s*['\"]([^'\"]+)['\"]",
     re.MULTILINE,
@@ -23,6 +29,18 @@ _CATALOG_NAME = "index.json"
 def _front_matter_title(text: str) -> str:
     match = _FRONT_MATTER_TITLE.search(text)
     return match.group(2).strip() if match else ""
+
+
+def _front_matter_date(text: str) -> str:
+    match = _FRONT_MATTER_DATE.search(text)
+    if not match:
+        return ""
+    found = _DATE_PREFIX.match(match.group(2).strip())
+    return found.group(1) if found else ""
+
+
+def _mtime_date(path: Path) -> str:
+    return datetime.fromtimestamp(path.stat().st_mtime).date().isoformat()
 
 
 def _title_from_html(path: Path) -> str:
@@ -37,19 +55,16 @@ def _is_placeholder_title(title: str) -> bool:
     return bool(title) and _PLACEHOLDER_TITLE.match(title) is not None
 
 
-def _title_from_hugo(hugo_root: Path | None, lang: str, slug: str) -> str:
+def _matching_hugo_text(hugo_root: Path | None, lang: str, slug: str) -> str:
     if hugo_root is None:
         return ""
     root = Path(hugo_root)
-    direct = root / "content" / lang / "blog" / f"{slug}.md"
-    paths = [direct]
+    paths = [root / "content" / lang / "blog" / f"{slug}.md"]
     if lang != "zh-cn":
         paths.append(root / "content" / "zh-cn" / "blog" / f"{slug}.md")
     for path in paths:
         if path.is_file():
-            title = _front_matter_title(path.read_text(encoding="utf-8"))
-            if title:
-                return title
+            return path.read_text(encoding="utf-8")
     content = root / "content"
     if not content.is_dir():
         return ""
@@ -62,26 +77,27 @@ def _title_from_hugo(hugo_root: Path | None, lang: str, slug: str) -> str:
             text = path.read_text(encoding="utf-8")
             key = _TRANSLATION_KEY.search(text)
             if path.stem == slug or (key and key.group(1) == slug):
-                title = _front_matter_title(text)
-                if title:
-                    return title
+                return text
     return ""
 
 
-def _article_title(
+def _article_fields(
     page: Path,
     *,
     lang: str,
     slug: str,
     hugo_root: Path | None,
-) -> str:
-    hugo_title = _title_from_hugo(hugo_root, lang, slug)
-    if hugo_title:
-        return hugo_title
-    html_title = _title_from_html(page)
-    if html_title and not _is_placeholder_title(html_title):
-        return html_title
-    return slug
+) -> tuple[str, str]:
+    hugo_text = _matching_hugo_text(hugo_root, lang, slug)
+    title = _front_matter_title(hugo_text)
+    if not title:
+        html_title = _title_from_html(page)
+        if html_title and not _is_placeholder_title(html_title):
+            title = html_title
+        else:
+            title = slug
+    date = _front_matter_date(hugo_text) or _mtime_date(page)
+    return title, date
 
 
 def scan_wechat_articles(
@@ -91,7 +107,7 @@ def scan_wechat_articles(
     root = Path(preview_dir) / "_wechat"
     if not root.is_dir():
         return []
-    pages: list[tuple[float, dict[str, str]]] = []
+    pages: list[tuple[str, float, dict[str, str]]] = []
     for lang_dir in root.iterdir():
         if not lang_dir.is_dir() or lang_dir.name.startswith("."):
             continue
@@ -103,21 +119,24 @@ def scan_wechat_articles(
                 continue
             slug = slug_dir.name
             lang = lang_dir.name
+            title, date = _article_fields(
+                page, lang=lang, slug=slug, hugo_root=hugo_root
+            )
             pages.append(
                 (
+                    date,
                     page.stat().st_mtime,
                     {
-                        "title": _article_title(
-                            page, lang=lang, slug=slug, hugo_root=hugo_root
-                        ),
+                        "title": title,
+                        "date": date,
                         "lang": lang,
                         "slug": slug,
                         "url": f"/_wechat/{lang}/{slug}/",
                     },
                 )
             )
-    pages.sort(key=lambda item: item[0], reverse=True)
-    return [item[1] for item in pages]
+    pages.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item[2] for item in pages]
 
 
 def write_wechat_catalog(

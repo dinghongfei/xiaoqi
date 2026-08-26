@@ -1,3 +1,3 @@
 +++
-title = 'Demo Blog'
+title = 'Website articles'
 +++

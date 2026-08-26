@@ -18,6 +18,8 @@ from wechat.themes import theme_payload
 
 SAMPLE_MD = """+++
 title = '你好'
+author = '内容编辑'
+summary = 'Hugo摘要'
 translationKey = 'hello-preview'
 +++
 
@@ -268,10 +270,11 @@ def test_highlight_keeps_spaces_between_python_tokens():
 
 def test_theme_payload_has_first_wave_presets():
     data = theme_payload()
-    assert [item["id"] for item in data["themes"]] == ["classic", "elegant", "simple"]
+    assert "themes" not in data
     assert set(data["fonts"]) == {"sans", "serif", "mono"}
-    assert data["sizes"] == [14, 15, 16, 17, 18]
+    assert data["sizes"] == [12, 14, 16, 18]
     assert any(c["value"] == "#2563EB" for c in data["colors"])
+    assert any(c["id"] == "wechat" and c["value"] == "#07C160" for c in data["colors"])
     assert data["defaults"]["accent"] == "#2563EB"
 
 
@@ -292,11 +295,27 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert 'data-opt="device"' in page
     assert "手机" in page
     assert "电脑" in page
-    assert "经典" in page
-    assert "优雅" in page
-    assert "简洁" in page
+    assert "<h2>主题</h2>" not in page
+    assert "优雅" not in page
+    assert "简洁" not in page
+    assert "自定义色" not in page
+    assert "wx-custom-color" not in page
     assert "无衬线" in page
     assert "主题色" in page
+    assert 'aria-label="复制标题"' in page
+    assert 'aria-label="复制作者"' in page
+    assert 'aria-label="复制摘要"' in page
+    assert "wx-meta-copy" in page
+    assert "wx-style-start" in page
+    filled = build_preview_page(
+        "<div class='wechat-article'><p>正文</p></div>",
+        title="示例标题",
+        author="内容编辑",
+        summary='摘要"测试"',
+    )
+    assert 'data-copy="示例标题"' in filled
+    assert 'data-copy="内容编辑"' in filled
+    assert "摘要&quot;测试&quot;" in filled
     assert "copy-status" not in page
     assert "不要单独复制图片" not in page
     assert "发布" not in page
@@ -339,15 +358,16 @@ def test_convert_wechat_writes_preview_tree(tmp_path: Path):
     catalog = preview / "_wechat" / "index.json"
     assert catalog.is_file()
     data = json.loads(catalog.read_text(encoding="utf-8"))
-    assert data["articles"] == [
-        {
-            "title": "你好",
-            "lang": "zh-cn",
-            "slug": "hello-preview",
-            "url": "/_wechat/zh-cn/hello-preview/",
-        }
-    ]
+    article = data["articles"][0]
+    assert article["title"] == "你好"
+    assert article["lang"] == "zh-cn"
+    assert article["slug"] == "hello-preview"
+    assert article["url"] == "/_wechat/zh-cn/hello-preview/"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", article["date"])
     assert "<title>你好</title>" in page
+    assert 'data-copy="你好"' in page
+    assert 'data-copy="内容编辑"' in page
+    assert 'data-copy="Hugo摘要"' in page
 
 
 def test_convert_wechat_reads_processed_markdown(tmp_path: Path):
@@ -376,6 +396,9 @@ def test_convert_wechat_reads_processed_markdown(tmp_path: Path):
     )
     assert "<title>你好</title>" in page
     assert "一、什么是具身智能" in page
+    assert 'data-copy="你好"' in page
+    assert 'data-copy="内容编辑"' in page
+    assert 'data-copy="摘要文字"' in page
     assert "封面提示词不要出现在正文" not in page
     assert "飞书文档标题" not in page
     assert "| slug |" not in page
@@ -441,6 +464,8 @@ def test_write_wechat_catalog_scans_existing_pages(tmp_path: Path):
     assert slugs["alpha"]["url"] == "/_wechat/zh-cn/alpha/"
     assert slugs["beta"]["lang"] == "en"
     assert slugs["beta"]["title"] == "English"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", slugs["alpha"]["date"])
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", slugs["beta"]["date"])
 
 
 def test_write_wechat_catalog_uses_hugo_title_not_placeholder(tmp_path: Path):
@@ -451,6 +476,7 @@ def test_write_wechat_catalog_uses_hugo_title_not_placeholder(tmp_path: Path):
     article.mkdir(parents=True)
     (article / "intelligent-robot-tech-and-products.md").write_text(
         "+++\ntitle = '智能机器人核心技术与人形产品对比'\n"
+        "date = '2026-08-25T00:00:00+08:00'\n"
         "translationKey = 'intelligent-robot-tech-and-products'\n+++\n\n正文\n",
         encoding="utf-8",
     )
@@ -465,4 +491,5 @@ def test_write_wechat_catalog_uses_hugo_title_not_placeholder(tmp_path: Path):
     data = json.loads((preview / "_wechat" / "index.json").read_text(encoding="utf-8"))
     assert len(data["articles"]) == 1
     assert data["articles"][0]["title"] == "智能机器人核心技术与人形产品对比"
+    assert data["articles"][0]["date"] == "2026-08-25"
     assert "公众号预览" not in data["articles"][0]["title"]

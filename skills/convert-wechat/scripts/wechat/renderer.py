@@ -15,13 +15,12 @@ from last_job import abs_from_job, load_last_job, relpath, update_last_job
 from urls import wechat_page_url
 from wechat.catalog import write_wechat_catalog
 from wechat.highlight import highlight_code, parse_fence_info
-from wechat.source import fallback_hugo_title, parse_processed_markdown
+from wechat.source import fallback_hugo_field, fallback_hugo_title, parse_processed_markdown
 from wechat.themes import (
     ARTICLE_PREVIEW_CSS,
     COLORS,
     FONTS,
     SIZES,
-    THEMES,
     theme_data_json,
 )
 from wechat.xml_styles import overlay_xml_styles
@@ -448,17 +447,43 @@ def _color_buttons() -> str:
     return f'<div class="wx-colors">{"".join(bits)}</div>'
 
 
-def _panel_html() -> str:
-    theme_items = [(key, label) for key, label in THEMES]
+_COPY_ICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" '
+    'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>'
+    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
+    "</svg>"
+)
+
+
+def _meta_item(label: str, value: str) -> str:
+    raw = (value or "").strip()
+    display = html.escape(raw) if raw else "（空）"
+    empty = "" if raw else " is-empty"
+    return (
+        f'<div class="wx-meta-item">'
+        f'<div class="wx-meta-head">'
+        f"<h2>{html.escape(label)}</h2>"
+        f'<button type="button" class="wx-meta-copy" data-copy="{html.escape(raw, quote=True)}" '
+        f'aria-label="复制{html.escape(label)}" title="复制">{_COPY_ICON}</button>'
+        f"</div>"
+        f'<p class="wx-meta-value{empty}">{display}</p>'
+        f"</div>"
+    )
+
+
+def _panel_html(*, title: str = "", author: str = "", summary: str = "") -> str:
     font_items = [(key, label) for key, label, _stack in FONTS]
     size_items = [(str(size), f"{size}px") for size in SIZES]
     return f"""
 <aside class="wx-panel" id="style-panel">
-  <section>
-    <h2>主题</h2>
-    {_seg_buttons("theme", theme_items)}
+  <section class="wx-meta">
+    {_meta_item("标题", title)}
+    {_meta_item("作者", author)}
+    {_meta_item("摘要", summary)}
   </section>
-  <section>
+  <section class="wx-style-start">
     <h2>字体</h2>
     {_seg_buttons("font", font_items)}
   </section>
@@ -469,13 +494,6 @@ def _panel_html() -> str:
   <section>
     <h2>主题色</h2>
     {_color_buttons()}
-  </section>
-  <section>
-    <h2>自定义色</h2>
-    <label class="wx-custom">
-      <input type="color" id="wx-custom-color" value="#2563EB">
-      <span>自选</span>
-    </label>
   </section>
 </aside>
 """
@@ -570,6 +588,42 @@ def _chrome_css() -> str:
       font-weight: 600;
     }
     .wx-panel section { margin-bottom: 20px; }
+    .wx-meta { display: flex; flex-direction: column; gap: 14px; }
+    .wx-meta-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .wx-meta-head h2 { margin: 0; }
+    .wx-meta-copy {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #fff;
+      color: #6b7280;
+      cursor: pointer;
+    }
+    .wx-meta-copy:hover { color: #111827; border-color: #d1d5db; }
+    .wx-meta-copy.is-copied { color: #059669; border-color: #059669; }
+    .wx-meta-value {
+      margin: 6px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #374151;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .wx-meta-value.is-empty { color: #9ca3af; }
+    .wx-style-start {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 20px;
+    }
     .wx-colors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .wx-color {
       display: flex;
@@ -591,21 +645,6 @@ def _chrome_css() -> str:
       flex: none;
       border: 1px solid rgba(0,0,0,.08);
     }
-    .wx-custom {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-    }
-    .wx-custom input[type="color"] {
-      width: 32px;
-      height: 32px;
-      padding: 0;
-      border: 1px solid #e5e7eb;
-      border-radius: 6px;
-      background: #fff;
-      cursor: pointer;
-    }
 """
 
 
@@ -617,7 +656,6 @@ def _preview_script() -> str:
       const host = document.getElementById("article-html");
       const deviceEl = document.getElementById("wx-device");
       const btn = document.getElementById("copy-btn");
-      const custom = document.getElementById("wx-custom-color");
       const LABEL = "一键复制";
       const storageKey = "wx-preview-style-v1:" + (document.body.getAttribute("data-slug") || "default");
       const STYLE_PROPS = [
@@ -674,18 +712,9 @@ def _preview_script() -> str:
             : value === current;
           el.setAttribute("aria-pressed", selected ? "true" : "false");
         });
-        const preset = (data.colors || []).some(
-          (c) => String(c.value).toLowerCase() === String(state.accent).toLowerCase()
-        );
-        if (custom) {
-          custom.value = state.accent;
-          const wrap = custom.closest(".wx-custom");
-          if (wrap) wrap.classList.toggle("is-custom", !preset);
-        }
       }
 
       function apply() {
-        host.dataset.theme = state.theme;
         host.style.setProperty("--wx-accent", state.accent);
         host.style.setProperty("--wx-size", state.size + "px");
         const font = (data.fonts || {})[state.font] || (data.fonts || {}).sans;
@@ -858,22 +887,38 @@ def _preview_script() -> str:
       }
 
       document.addEventListener("click", (ev) => {
+        const metaBtn = ev.target.closest(".wx-meta-copy");
+        if (metaBtn) {
+          const text = metaBtn.getAttribute("data-copy") || "";
+          const mark = () => {
+            metaBtn.classList.add("is-copied");
+            metaBtn.title = "已复制";
+            setTimeout(() => {
+              metaBtn.classList.remove("is-copied");
+              metaBtn.title = "复制";
+            }, 1200);
+          };
+          const fail = (err) => {
+            const msg = err && err.message ? err.message : "复制失败";
+            metaBtn.title = msg;
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(mark).catch(fail);
+          } else {
+            writeClipboard(text, text).then(mark).catch(fail);
+          }
+          return;
+        }
         const target = ev.target.closest("[data-opt]");
         if (!target) return;
         const opt = target.getAttribute("data-opt");
         const value = target.getAttribute("data-value");
         if (opt === "size") state.size = Number(value);
-        else if (opt === "device" || opt === "theme" || opt === "font" || opt === "accent") {
+        else if (opt === "device" || opt === "font" || opt === "accent") {
           state[opt] = value;
         }
         apply();
       });
-      if (custom) {
-        custom.addEventListener("input", () => {
-          state.accent = custom.value;
-          apply();
-        });
-      }
       btn.addEventListener("click", copyArticle);
       apply();
     })();
@@ -885,13 +930,15 @@ def build_preview_page(
     *,
     title: str = "公众号预览",
     slug: str = "",
+    author: str = "",
+    summary: str = "",
 ) -> str:
     """Wrap article with device preview, style panel, and copy toolbar."""
     safe_title = html.escape(title)
     safe_slug = html.escape(slug)
     copy_script = _preview_script()
     chrome_css = _chrome_css()
-    panel = _panel_html()
+    panel = _panel_html(title=title, author=author, summary=summary)
     payload = theme_data_json()
     device_seg = _seg_buttons("device", [("phone", "手机"), ("desktop", "电脑")])
     return f"""<!DOCTYPE html>
@@ -952,11 +999,15 @@ def convert_wechat(
         slug = parsed.slug or str(job.get("slug") or source.stem)
         lang = parsed.lang or str(job.get("lang") or "zh-cn")
         article_title = parsed.title or fallback_hugo_title(text) or slug
+        author = parsed.author
+        summary = parsed.summary
     else:
         body = text
         slug = str(job.get("slug") or source.stem)
         lang = str(job.get("lang") or "zh-cn")
         article_title = fallback_hugo_title(text) or _front_matter_title(text) or slug
+        author = fallback_hugo_field(text, "author")
+        summary = fallback_hugo_field(text, "summary")
 
     xml_text = ""
     xml_path = abs_from_job(settings, job.get("xml_path"))
@@ -974,6 +1025,8 @@ def convert_wechat(
         article,
         title=article_title,
         slug=slug,
+        author=author,
+        summary=summary,
     )
 
     out_dir = settings.preview_dir / "_wechat" / lang / slug

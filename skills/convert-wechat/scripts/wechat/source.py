@@ -14,6 +14,8 @@ class WeChatSource:
     title: str = ""
     slug: str = ""
     lang: str = ""
+    author: str = ""
+    summary: str = ""
 
 
 def normalize_wechat_lang(lang: str) -> str:
@@ -68,9 +70,19 @@ def parse_processed_markdown(text: str) -> WeChatSource | None:
         title=meta.get("title", "").strip(),
         slug=meta.get("slug", "").strip().lower(),
         lang=normalize_wechat_lang(meta.get("lang", "")),
+        author=meta.get("author", "").strip(),
+        summary=meta.get("summary", "").strip(),
     )
 
 
-def fallback_hugo_title(text: str) -> str:
-    match = re.search(r"^title\s*=\s*(['\"])(.*)\1\s*$", text or "", re.MULTILINE)
+def fallback_hugo_field(text: str, key: str) -> str:
+    match = re.search(
+        rf"^{re.escape(key)}\s*=\s*(['\"])(.*)\1\s*$",
+        text or "",
+        re.MULTILINE,
+    )
     return match.group(2).strip() if match else ""
+
+
+def fallback_hugo_title(text: str) -> str:
+    return fallback_hugo_field(text, "title")
