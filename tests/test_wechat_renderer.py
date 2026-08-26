@@ -280,7 +280,7 @@ def test_theme_payload_has_first_wave_presets():
 
 def test_preview_page_has_copy_device_and_style_panel():
     page = build_preview_page("<div class='wechat-article'><p>正文</p></div>", slug="demo")
-    assert "一键复制" in page
+    assert "正文复制" in page
     assert "copy-btn" in page
     assert "article-html" in page
     assert "style-panel" in page
@@ -351,7 +351,7 @@ def test_convert_wechat_writes_preview_tree(tmp_path: Path):
     page = (preview / "_wechat" / "zh-cn" / "hello-preview" / "index.html").read_text(
         encoding="utf-8"
     )
-    assert "一键复制" in page
+    assert "正文复制" in page
     assert "wechat-article" in page
     assert "style-panel" in page
     assert "wx-theme-data" in page

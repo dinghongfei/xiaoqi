@@ -656,7 +656,7 @@ def _preview_script() -> str:
       const host = document.getElementById("article-html");
       const deviceEl = document.getElementById("wx-device");
       const btn = document.getElementById("copy-btn");
-      const LABEL = "一键复制";
+      const LABEL = "正文复制";
       const storageKey = "wx-preview-style-v1:" + (document.body.getAttribute("data-slug") || "default");
       const STYLE_PROPS = [
         "color", "background-color",
@@ -956,7 +956,7 @@ def build_preview_page(
   <div class="wx-app">
     <header class="wx-toolbar">
       {device_seg}
-      <button type="button" class="wx-copy" id="copy-btn">一键复制</button>
+      <button type="button" class="wx-copy" id="copy-btn">正文复制</button>
     </header>
     <div class="wx-body">
       <main class="wx-preview">
