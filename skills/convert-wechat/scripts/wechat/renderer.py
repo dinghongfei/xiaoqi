@@ -63,7 +63,10 @@ _FRONT_MATTER_TITLE = re.compile(
     re.MULTILINE,
 )
 _VIDEO_COVER = re.compile(
-    r'(<aside class="wechat-video-card">.*?</aside>)\s*'
+    r'(<section class="wechat-video-card">'
+    r"\s*<section class=\"wechat-video-card-hd\">.*?</section>"
+    r"\s*<section class=\"wechat-video-card-bd\">.*?</section>"
+    r"\s*</section>)\s*"
     r"(?:<p>)?(<figure\b.*?</figure>|<img\b[^>]*>)(?:</p>)?",
     re.IGNORECASE | re.DOTALL,
 )
@@ -308,9 +311,10 @@ def _restore_fenced_code(body: str, blocks: list[tuple[str, str]]) -> str:
         )
         if title:
             block = (
-                f'<div class="wechat-code">'
-                f'<div class="wechat-code-title">{html.escape(title)}</div>'
-                f"{pre}</div>"
+                f'<section class="wechat-code">'
+                f'<section class="wechat-code-title">'
+                f"<span>{html.escape(title)}</span></section>"
+                f"{pre}</section>"
             )
         else:
             block = pre
@@ -326,6 +330,16 @@ def _attr_value(attr_blob: str, name: str) -> str:
         re.IGNORECASE,
     )
     return match.group(1) if match else ""
+
+
+def _wx_card(css: str, heading: str, inner_html: str, extra: str = "") -> str:
+    """WeChat's editor keeps background/border on section, not aside/div."""
+    return (
+        f'\n\n<section class="{css}">'
+        f'<section class="{css}-hd"><span>{html.escape(heading)}</span></section>'
+        f'<section class="{css}-bd">{inner_html}</section>'
+        f"{extra}</section>\n\n"
+    )
 
 
 def _callout_html(attrs: str, inner: str) -> str:
@@ -350,12 +364,7 @@ def _callout_html(attrs: str, inner: str) -> str:
             f'<figure><img src="{html.escape(cover, quote=True)}" '
             f'alt="{html.escape(caption)}">{cap}</figure>'
         )
-    return (
-        f'\n\n<aside class="{css}">'
-        f'<div class="{css}-hd">{html.escape(f"{emoji} {label}")}</div>'
-        f'<div class="{css}-bd">{inner_html}</div>'
-        f"{cover_html}</aside>\n\n"
-    )
+    return _wx_card(css, f"{emoji} {label}", inner_html, cover_html)
 
 
 def _rewrite_callouts(text: str) -> str:
@@ -371,7 +380,7 @@ def _merge_video_covers(body: str) -> str:
         card, media = match.group(1), match.group(2)
         if "<figure" not in media and media.lower().startswith("<img"):
             media = f"<figure>{media}</figure>"
-        return card[: -len("</aside>")] + media + "</aside>"
+        return card[: -len("</section>")] + media + "</section>"
 
     return _VIDEO_COVER.sub(repl, body, count=1)
 
@@ -409,13 +418,11 @@ def restyle_markdown(
         src = _abs_url(attrs.get("src", ""), site_base_url)
         caption = attrs.get("caption", "")
         label = caption or src
-        return (
-            f'<aside class="wechat-video-card">'
-            f'<div class="wechat-video-card-hd">🎬 视频</div>'
-            f'<div class="wechat-video-card-bd">'
-            f"<p>视频不在公众号内嵌播放，请到官网查看：{html.escape(label)}</p>"
-            f"</div></aside>"
-        )
+        return _wx_card(
+            "wechat-video-card",
+            "🎬 视频",
+            f"<p>视频不在公众号内嵌播放，请到官网查看：{html.escape(label)}</p>",
+        ).strip()
 
     text = _FIGURE.sub(replace_figure, text)
     text = _VIDEO.sub(replace_video, text)
@@ -791,7 +798,8 @@ def _preview_script() -> str:
         "border-right-width", "border-right-style", "border-right-color",
         "border-bottom-width", "border-bottom-style", "border-bottom-color",
         "border-left-width", "border-left-style", "border-left-color",
-        "border-radius", "word-break", "display", "white-space"
+        "border-radius", "word-break", "display", "white-space",
+        "overflow", "overflow-x", "overflow-y", "box-sizing"
       ];
       const INLINE_TAGS = {
         a: 1, b: 1, code: 1, del: 1, em: 1, i: 1, mark: 1, small: 1, span: 1, strong: 1, u: 1
@@ -819,6 +827,10 @@ def _preview_script() -> str:
         if (prop.indexOf("border-") === 0 && prop.indexOf("-width") !== -1 && (value === "0px" || value === "0")) {
           return false;
         }
+        if (prop.indexOf("overflow") === 0 && (value === "visible" || value === "auto")) {
+          return false;
+        }
+        if (prop === "box-sizing" && value === "content-box") return false;
         return true;
       }
 
@@ -858,9 +870,10 @@ def _preview_script() -> str:
           const parts = [];
           for (let p = 0; p < STYLE_PROPS.length; p++) {
             const prop = STYLE_PROPS[p];
-            const val = cs.getPropertyValue(prop);
+            let val = cs.getPropertyValue(prop);
             if (!keep(prop, val)) continue;
             if (prop === "display" && INLINE_TAGS[tag]) continue;
+            if (prop === "font-weight" && Number(val) >= 600) val = "bold";
             if (prop.indexOf("border-") === 0 && prop.indexOf("-color") !== -1) {
               const side = prop.replace("-color", "-width");
               const width = cs.getPropertyValue(side);
@@ -899,6 +912,27 @@ def _preview_script() -> str:
             node.setAttribute("height", String(nh));
           }
         }
+      }
+
+      function replaceWithSection(el) {
+        if (!el || el.nodeType !== 1) return el;
+        const tag = el.tagName.toLowerCase();
+        if (tag !== "aside" && tag !== "div") return el;
+        const section = document.createElement("section");
+        for (let i = 0; i < el.attributes.length; i++) {
+          section.setAttribute(el.attributes[i].name, el.attributes[i].value);
+        }
+        while (el.firstChild) section.appendChild(el.firstChild);
+        if (el.parentNode) el.replaceWith(section);
+        return section;
+      }
+
+      function rewriteWeChatBlocks(root) {
+        const nodes = Array.from(root.querySelectorAll("aside, div"));
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          replaceWithSection(nodes[i]);
+        }
+        return replaceWithSection(root);
       }
 
       function flattenListEmphasis(root) {
@@ -1014,7 +1048,7 @@ def _preview_script() -> str:
         btn.removeAttribute("title");
         try {
           const live = copyRoot();
-          const clone = snapshotInline(live);
+          const clone = rewriteWeChatBlocks(snapshotInline(live));
           sizeCopiedImages(live, clone);
           flattenListEmphasis(clone);
           wrapListBareText(clone);

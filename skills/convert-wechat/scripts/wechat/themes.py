@@ -189,6 +189,11 @@ ARTICLE_PREVIEW_CSS = """
   font-size: 0.75em;
   padding: 6px 12px;
 }
+#article-html .wechat-article .wechat-code-title span {
+  color: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+}
 #article-html .wechat-article .wechat-code pre {
   margin: 0;
   border-radius: 0;
@@ -207,6 +212,15 @@ ARTICLE_PREVIEW_CSS = """
   color: #1d4ed8;
   font-weight: 600;
   padding: 8px 12px;
+}
+#article-html .wechat-article .wechat-video-card-hd span,
+#article-html .wechat-article .wechat-callout-hd span,
+#article-html .wechat-article .wechat-video-card-hd p,
+#article-html .wechat-article .wechat-callout-hd p {
+  margin: 0;
+  color: inherit;
+  font-weight: inherit;
+  font-size: inherit;
 }
 #article-html .wechat-article .wechat-video-card-bd,
 #article-html .wechat-article .wechat-callout-bd {

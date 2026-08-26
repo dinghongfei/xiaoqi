@@ -192,11 +192,39 @@ print("ok")
     assert "wechat-video-card" in html
     assert "工厂分拣演示" in html
     assert "小鹏 Iron 视频封面" in html
-    video_html = html[html.find("wechat-video-card") : html.find("</aside>") + 8]
-    assert "iron.png" in video_html
+    assert "<aside" not in html
+    video_html = re.search(
+        r'<section class="wechat-video-card">.*?</section>\s*'
+        r'<section class="wechat-video-card-bd">.*?</section>.*?</section>',
+        html,
+        re.S,
+    )
+    assert video_html is not None
+    assert "iron.png" in video_html.group(0)
+    assert '<section class="wechat-video-card-hd">' in video_html.group(0)
+    assert '<section class="wechat-code">' in html
+    assert '<section class="wechat-code-title">' in html
     assert '<span style="display: inline">：视觉与力觉</span>' in html
     assert '<span style="display: inline">：步态规划</span>' in html
     assert "<p><strong>具身智能</strong>强调" in html
+
+
+def test_callout_uses_section_not_aside_or_div():
+    md = """+++
+title = '格式'
++++
+
+<callout emoji="✔️">
+然后呢，要如何解决
+</callout>
+"""
+    html = restyle_markdown(md, site_base_url="http://127.0.0.1:1314")
+    assert "<aside" not in html
+    assert '<div class="wechat-callout' not in html
+    assert '<section class="wechat-callout">' in html
+    assert '<section class="wechat-callout-hd"><span>' in html
+    assert "然后呢，要如何解决" in html
+    assert "✔️ 说明" in html
 
 
 def test_wrap_list_bare_text_keeps_colon_after_bold_on_same_item():
@@ -347,12 +375,15 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert "preserveCodeSpaces" in page
     assert "flattenListEmphasis" in page
     assert "wrapListBareText" in page
+    assert "rewriteWeChatBlocks" in page
+    assert "replaceWithSection" in page
     assert "INLINE_TAGS" in page
     assert 'querySelectorAll("img")' in page
     assert "naturalWidth" in page
     assert "sizeCopiedImages" in page
     assert "IMG_PROPS" not in page
     assert "getComputedStyle" in page
+    assert "let val = cs.getPropertyValue(prop)" in page
     assert "--wx-accent" in page
     assert 'data-opt="device"' in page
     assert "手机" in page
