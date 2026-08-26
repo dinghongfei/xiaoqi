@@ -18,7 +18,7 @@ slug=demo
 
 产物：
 
-- `data/jobs/<token>/raw.md`（下载原文）、`processed.md`（`<title>` 已转成一级标题，媒体已本地化）
+- `data/jobs/<token>/raw.md`（下载原文；若 fetch 返回 JSON 则已抽出 `content`）、`processed.md`（`<title>` 已转成一级标题，媒体已本地化）
 - `data/jobs/<token>/media/`（按 URL 下载的原始媒体）
 - `data/last-job.json`
 - 供站点引用的副本：`site/static/image/`、`site/static/video/`

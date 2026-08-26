@@ -1,5 +1,7 @@
 """Tests for lark-cli command strings and fetch payload parsing."""
 
+import json
+
 from feishu import lark_cmds
 from feishu.payload import document_from_fetch
 
@@ -49,3 +51,43 @@ def test_document_from_fetch_json_and_plain():
     plain, empty = document_from_fetch("# already markdown")
     assert plain == "# already markdown"
     assert empty == ""
+
+
+def test_document_from_fetch_unwraps_v2_envelope_variants():
+    xml = "<title>标题</title><p>正文</p>"
+    wrapped = (
+        '\ufeff{"ok":true,"data":{"document":{"content":'
+        + json.dumps(xml)
+        + ',"document_id":"dox2"}}}\nfetch done\n'
+    )
+    content, doc_id = document_from_fetch(wrapped)
+    assert content == xml
+    assert doc_id == "dox2"
+
+    notice_then_doc = (
+        '{"_notice":{"update":true}}\n'
+        '{"ok":true,"data":{"document":{"content":"# from ndjson","document_id":"dox3"}}}'
+    )
+    content, doc_id = document_from_fetch(notice_then_doc)
+    assert content == "# from ndjson"
+    assert doc_id == "dox3"
+
+    fenced = '```json\n{"data":{"document":{"content":"# fenced"}}}\n```'
+    content, doc_id = document_from_fetch(fenced)
+    assert content == "# fenced"
+    assert doc_id == ""
+
+    nested = json.dumps(
+        {
+            "data": {
+                "document": {
+                    "content": json.dumps(
+                        {"data": {"document": {"content": "# inner", "document_id": "dox4"}}}
+                    )
+                }
+            }
+        }
+    )
+    content, doc_id = document_from_fetch(nested)
+    assert content == "# inner"
+    assert doc_id == "dox4"

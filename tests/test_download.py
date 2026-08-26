@@ -1,5 +1,6 @@
 """Tests for download skill with Agent-fetched local files."""
 
+import json
 from pathlib import Path
 
 from config import Settings
@@ -156,3 +157,43 @@ def test_download_http_image_url_saves_to_job_media(tmp_path: Path, monkeypatch)
     assert "authcode" not in processed
     static_images = list((tmp_path / "site" / "static" / "image").iterdir())
     assert static_images
+
+
+def test_download_unwraps_api_v2_json_into_raw_files(tmp_path: Path):
+    settings = _settings(tmp_path)
+    md_json = json.dumps(
+        {
+            "ok": True,
+            "data": {
+                "document": {
+                    "content": RAW.strip() + "\n",
+                    "document_id": "doxcnJson",
+                }
+            },
+        },
+        ensure_ascii=False,
+    )
+    xml_body = "<title>示例</title><p>正文里没有媒体。</p>"
+    xml_json = json.dumps(
+        {"data": {"document": {"content": xml_body, "document_id": "doxcnJson"}}},
+        ensure_ascii=False,
+    )
+    _seed(settings, "AbCToken", md_json, xml_json)
+    result = download_feishu_doc(
+        settings,
+        DocRef(kind="docx", token="AbCToken"),
+        section="blog",
+    )
+    assert result.status == "ok"
+    assert result.document_id == "doxcnJson"
+    assert result.slug == "demo-slug"
+    raw = (tmp_path / "jobs" / "AbCToken" / "raw.md").read_text(encoding="utf-8")
+    xml = (tmp_path / "jobs" / "AbCToken" / "raw.xml").read_text(encoding="utf-8")
+    processed = (tmp_path / "jobs" / "AbCToken" / "processed.md").read_text(
+        encoding="utf-8"
+    )
+    assert raw.lstrip().startswith("| slug |")
+    assert '"data"' not in raw
+    assert xml == xml_body
+    assert "demo-slug" in processed
+    assert '"document"' not in processed

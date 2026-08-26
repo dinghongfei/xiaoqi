@@ -346,7 +346,7 @@ class Enricher:
             dest = relpath(
                 Path(self.settings.jobs_dir) / _safe_job_token(doc_ref.token) / "raw.md"
             )
-        dest_line = f"把 data.document.content 写入 {dest}\n" if dest else ""
+        dest_line = f"把 fetch 的 stdout 写入 {dest}（JSON 或 markdown 均可）\n" if dest else ""
         return (
             f"❌ 还没有正文稿。{lark_cmds.AUTH_HINT}\n"
             f"{wiki_line}"

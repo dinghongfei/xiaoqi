@@ -37,6 +37,8 @@ inspect 之前若还没有 `data/jobs/<token>/raw.md`，先 fetch markdown：
 lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format markdown
 ```
 
+把 stdout 写入 `data/jobs/<token>/raw.md`。若是 JSON，`download-feishu-doc` / inspect 会取出 `data.document.content`。
+
 知识库 wiki 先：`lark-cli drive +inspect --url 'WIKI_TOKEN' --type wiki`，用返回的 `data.token` 作为 docx token。
 
 apply 之后脚本会写出 `data/jobs/<token>/enrich.xml`。若用户要写回云文档，你再执行：

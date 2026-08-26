@@ -57,6 +57,8 @@ lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format xml --deta
 - `data/jobs/<token>/raw.md`
 - `data/jobs/<token>/raw.xml`
 
+`docs +fetch --api-version v2` 的 stdout 经常是 JSON（`{data:{document:{content:…}}}`）。**把 stdout 原样写入上述文件即可**：脚本若发现是 JSON，会取出 `data.document.content` 再保存；若已经是 markdown / xml，则直接保存。不要把整段 JSON 当正文去转换。
+
 图片 / 视频：正文和 XML 里如果已是完整 URL，**不要**逐个跑 `media-download`。跑本脚本即可，脚本会 HTTP 下载到 `data/jobs/<token>/media/`，再复制一份到 `site/static/image|video`（官网和公众号要读 static）。
 
 只有没有 URL 的 token（常见是画板）才需要：
@@ -85,7 +87,7 @@ uv run python <本Skill目录>/scripts/run.py --token 'WIKI_TOKEN' --kind wiki -
 
 ## 行为
 
-1. 读取 Agent 写好的 markdown / xml。
+1. 读取 Agent 写好的 markdown / xml。若文件是 lark-cli JSON（`data.document.content`），先解析出真正的 md / xml 再覆盖保存。
 2. 正文里的完整媒体 URL 由脚本直接下载到 `data/jobs/<token>/media/`，再 SHA256 命名复制到 `site/static/image|video`。没有 URL 的 token（画板等）才需要你先 `docs +media-download`。
 3. 正文媒体改成本地 `/image/`、`/video/` 路径。
 4. 产物写入 `data/jobs/<token>/`（同一 token 会覆盖上次的 `raw.md` / `processed.md` / `raw.xml`），并更新 `data/last-job.json`。`raw.md` 是下载原文（含 `<title>`）。`processed.md` 由原文加工：开头 `<title>` 转成 markdown 一级标题，媒体改成本地路径。

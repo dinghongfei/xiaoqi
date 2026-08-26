@@ -81,9 +81,9 @@ def download_feishu_doc(
                 f"❌ 还没有正文文件 {relpath(raw_path)}。{lark_cmds.AUTH_HINT}\n"
                 f"{wiki_line}"
                 f"请先执行：{lark_cmds.fetch_markdown(doc)}\n"
-                f"把 data.document.content 写入 {relpath(raw_path)}\n"
+                f"把 stdout 写入 {relpath(raw_path)}（JSON 或 markdown 均可）\n"
                 f"以及：{lark_cmds.fetch_xml(doc)}\n"
-                f"把 XML 写入 {relpath(default_xml)}"
+                f"把 stdout 写入 {relpath(default_xml)}（JSON 或 xml 均可）"
             ),
             token=doc_ref.token,
             kind=doc_ref.kind,

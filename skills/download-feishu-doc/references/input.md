@@ -8,7 +8,7 @@ lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format markdown
 lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format xml --detail full
 ```
 
-把正文写入 `data/jobs/<token>/raw.md` 与 `raw.xml` 后：
+把 `docs +fetch` 的 stdout 写入 `data/jobs/<token>/raw.md` 与 `raw.xml` 后（可以是 JSON，脚本会取出 `data.document.content`）：
 
 ```
 --token 'DOCX_TOKEN'
