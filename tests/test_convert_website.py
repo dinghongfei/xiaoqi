@@ -190,3 +190,39 @@ print(1)
     assert 'cover="/image/g1.jpg"' in body
     assert "{{< figure" in body or "caption=" in body
 
+
+def test_overlay_does_not_inject_spans_into_rgba_values():
+    from parser.body_format import prepare_hugo_body
+    from parser.xml_styles import converted_style_errors, overlay_xml_styles
+
+    md = (
+        "硬件成本快速下降，这里有一段高亮文字。\n\n"
+        "蓝色数字 206 出现在正文里。\n"
+    )
+    xml = """
+    <p><span background-color="rgba(186,206,253,.7)">这里有一段高亮文字</span></p>
+    <p><span text-color="rgb(36,91,219)">206</span></p>
+    """
+    body = overlay_xml_styles(md, xml)
+    assert 'style="background-color: rgba(186,206,253,.7)"' in body
+    assert "rgba(186,<span" not in body
+    assert "rgba(186,2<span" not in body
+    assert converted_style_errors(body) == []
+    assert '<span style="color: rgb(36,91,219)">206</span>' in body
+    hugo = prepare_hugo_body(md, xml, drop_leading_h1=False)
+    assert converted_style_errors(hugo) == []
+
+
+def test_converted_style_errors_detects_cut_rgba():
+    from parser.xml_styles import converted_style_errors
+
+    broken = (
+        '<span style="background-color: rgba(186,2'
+        '<span style="color: rgb(36,91,219)">06</span>,253,0.7)">'
+    )
+    errors = converted_style_errors(broken)
+    assert errors
+    assert any("rgba" in item or "颜色" in item or "嵌进" in item for item in errors)
+    dashed = '<span style-"background-color: rgba(186,206,253,.7)">'
+    assert converted_style_errors(dashed)
+

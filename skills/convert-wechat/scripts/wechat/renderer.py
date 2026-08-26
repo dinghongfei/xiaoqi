@@ -23,7 +23,7 @@ from wechat.themes import (
     SIZES,
     theme_data_json,
 )
-from wechat.xml_styles import overlay_xml_styles
+from wechat.xml_styles import StyleOverlayError, overlay_xml_styles
 
 _FRONT_MATTER = re.compile(r"^\+\+\+\n.*?\n\+\+\+\n*", re.DOTALL)
 _FIGURE = re.compile(
@@ -1043,14 +1043,17 @@ def convert_wechat(
     xml_path = abs_from_job(settings, job.get("xml_path"))
     if xml_path is not None and xml_path.is_file():
         xml_text = xml_path.read_text(encoding="utf-8")
-    article = _extract_article_div(
-        restyle_markdown(
-            body,
-            site_base_url=settings.site_base_url,
-            xml_text=xml_text,
-            article_title=article_title,
+    try:
+        article = _extract_article_div(
+            restyle_markdown(
+                body,
+                site_base_url=settings.site_base_url,
+                xml_text=xml_text,
+                article_title=article_title,
+            )
         )
-    )
+    except StyleOverlayError as exc:
+        return WeChatResult(status="error", message=f"❌ {exc}")
     page = build_preview_page(
         article,
         title=article_title,

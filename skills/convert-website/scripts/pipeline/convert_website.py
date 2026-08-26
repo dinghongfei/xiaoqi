@@ -17,6 +17,7 @@ from parser.feishu_grid import convert_feishu_grid_to_shortcode
 from parser.feishu_text import strip_heading_inline_styles, unescape_feishu_text
 from parser.metadata import MetadataError, validate_section
 from parser.ordered_list import fix_ordered_list_numbering
+from parser.xml_styles import StyleOverlayError
 from urls import site_page_url
 
 logger = logging.getLogger(__name__)
@@ -103,11 +104,14 @@ def convert_website(
     xml_text = ""
     if xml_path is not None and xml_path.is_file():
         xml_text = xml_path.read_text(encoding="utf-8")
-    body = prepare_hugo_body(
-        body,
-        xml_text,
-        drop_leading_h1=not metadata_keeps_doc_title_h1(doc.metadata_region),
-    )
+    try:
+        body = prepare_hugo_body(
+            body,
+            xml_text,
+            drop_leading_h1=not metadata_keeps_doc_title_h1(doc.metadata_region),
+        )
+    except StyleOverlayError as exc:
+        return ConvertResult(status="error", message=f"❌ {exc}")
 
     fm_metadata = {
         k: v

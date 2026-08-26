@@ -15,6 +15,11 @@ _FIGURE_SHORTCODE = re.compile(
     re.IGNORECASE,
 )
 _QUOTE_CHARS = "\"\"\"''"
+_COLOR_FN_NAMES = ("rgba(", "rgb(", "hsla(", "hsl(")
+
+
+class StyleOverlayError(ValueError):
+    """Converted markup broke a CSS color or span attribute."""
 
 
 def _clean_caption(text: str) -> str:
@@ -101,9 +106,87 @@ def _inside_code_fence(text: str, index: int) -> bool:
     return False
 
 
+def _inside_html_tag(body: str, index: int) -> bool:
+    """True when index sits in `<...>` attributes, not in element text."""
+    lt = body.rfind("<", 0, index + 1)
+    if lt == -1:
+        return False
+    gt = body.rfind(">", 0, index)
+    if gt > lt:
+        return False
+    close = body.find(">", lt)
+    if close == -1:
+        return False
+    return lt < index < close
+
+
+def _ascii_token_char(ch: str) -> bool:
+    return ch.isascii() and (ch.isalnum() or ch == "_")
+
+
+def _is_partial_ascii_token(body: str, start: int, end: int) -> bool:
+    """Skip wrapping `06` inside `206` / `rgba(186,206,…)` digit runs."""
+    if start > 0 and _ascii_token_char(body[start - 1]) and _ascii_token_char(body[start]):
+        return True
+    if end < len(body) and _ascii_token_char(body[end - 1]) and _ascii_token_char(body[end]):
+        return True
+    return False
+
+
 def _already_marked(body: str, start: int, end: int) -> bool:
     prefix = body[max(0, start - 48) : start]
     return bool(re.search(r"<(?:u|span|del|mark)\b[^>]*>\s*$", prefix, re.I))
+
+
+def _unsafe_wrap_site(body: str, start: int, end: int) -> bool:
+    if end <= start:
+        return True
+    if _inside_code_fence(body, start):
+        return True
+    if _inside_html_tag(body, start) or _inside_html_tag(body, end - 1):
+        return True
+    if _already_marked(body, start, end):
+        return True
+    return _is_partial_ascii_token(body, start, end)
+
+
+def _color_fn_contains_markup(text: str) -> bool:
+    lower = text.lower()
+    for name in _COLOR_FN_NAMES:
+        start = 0
+        while True:
+            j = lower.find(name, start)
+            if j < 0:
+                break
+            depth = 0
+            k = j + len(name) - 1
+            while k < len(text):
+                ch = text[k]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        if "<" in text[j : k + 1]:
+                            return True
+                        break
+                k += 1
+            start = j + len(name)
+    return False
+
+
+def converted_style_errors(text: str) -> list[str]:
+    """Return human-readable problems in overlaid span/CSS markup."""
+    errors: list[str] = []
+    if re.search(r"<span\s+style\s*-[^=]", text, re.I):
+        errors.append("span 的 style 属性损坏（写成了 style-）")
+    for match in re.finditer(r"<span\b([^>]*)>", text, re.I):
+        if "<" in match.group(1):
+            errors.append("span 标签属性里嵌进了 HTML")
+            break
+    if _color_fn_contains_markup(text):
+        errors.append("rgb/rgba 颜色值被 HTML 标签切断")
+    return errors
 
 
 def _wrap_span(body: str, text: str, style: dict[str, str]) -> str:
@@ -124,9 +207,7 @@ def _wrap_span(body: str, text: str, style: dict[str, str]) -> str:
 
     pattern = re.compile(_quote_pattern(text))
     for match in pattern.finditer(body):
-        if _inside_code_fence(body, match.start()):
-            continue
-        if _already_marked(body, match.start(), match.end()):
+        if _unsafe_wrap_site(body, match.start(), match.end()):
             continue
         return (
             body[: match.start()]
@@ -209,6 +290,9 @@ def overlay_xml_styles(markdown_text: str, xml_text: str) -> str:
     spans = sorted(parsed.spans, key=lambda item: len(item[0]), reverse=True)
     for text, style in spans:
         body = _wrap_span(body, text, style)
+    errors = converted_style_errors(body)
+    if errors:
+        raise StyleOverlayError("飞书格式转换校验失败：" + "；".join(errors))
     body = _apply_code_titles(body, parsed.code_titles)
     body = _apply_image_captions(body, parsed.image_captions)
     return front + body

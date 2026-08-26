@@ -242,6 +242,32 @@ print(1)
     assert "<figcaption>" in html
 
 
+def test_xml_overlay_does_not_split_rgba_with_nested_span():
+    from wechat.xml_styles import converted_style_errors, overlay_xml_styles
+
+    md = """+++
+title = '样例'
++++
+
+这里有一段高亮文字。
+
+正文里的 206。
+"""
+    xml = """
+    <p><span background-color="rgba(186,206,253,.7)">这里有一段高亮文字</span></p>
+    <p><span text-color="rgb(36,91,219)">206</span></p>
+    """
+    html = restyle_markdown(
+        md,
+        site_base_url="http://127.0.0.1:1314",
+        xml_text=xml,
+    )
+    assert "background-color: rgba(186,206,253,.7)" in html
+    assert "rgba(186,<span" not in html
+    assert converted_style_errors(overlay_xml_styles(md, xml)) == []
+    assert "color: rgb(36,91,219)" in html
+
+
 def test_restyle_keeps_plain_text_fence_as_pre():
     md = """+++
 title = '引用'
