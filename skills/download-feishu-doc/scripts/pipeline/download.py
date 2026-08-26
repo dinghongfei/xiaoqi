@@ -68,12 +68,11 @@ def download_feishu_doc(
     media_root = media_dir or (work / "media")
 
     if not source_md.is_file():
-        doc = doc_url or doc_ref.token
+        doc = doc_ref.token
         wiki_line = ""
         if doc_ref.kind == "wiki":
-            wiki_url = doc_url or f"https://open.feishu.cn/wiki/{doc_ref.token}"
             wiki_line = (
-                f"知识库请先：{lark_cmds.inspect_wiki(wiki_url)}\n"
+                f"知识库请先：{lark_cmds.inspect_wiki(doc_ref.token)}\n"
                 "用返回的 data.token 作为 docx token，再 fetch。\n"
             )
         return DownloadResult(

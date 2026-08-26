@@ -227,10 +227,12 @@ def test_apply_success_without_images_writes_cover_prompt():
     assert "<h1>图片</h1>" in result.enrichment_xml
     assert "封面提示词" in result.enrichment_xml
     assert "lark-cli docs +update" in result.message
+    assert "--doc 'TokenOne'" in result.message
     for line in result.message.splitlines():
         if line.startswith("lark-cli"):
             assert "--profile" not in line
             assert "--as" not in line
+            assert "https://" not in line
 
 
 def test_apply_still_writes_cover_prompt_when_body_has_images():

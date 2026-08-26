@@ -329,12 +329,11 @@ class Enricher:
         self.settings = settings
 
     def _missing_markdown_message(self, doc_ref: DocRef) -> str:
-        doc = (doc_ref.url or "").strip() or doc_ref.token
+        doc = doc_ref.token
         wiki_line = ""
         if doc_ref.kind == "wiki":
-            wiki_url = doc or f"https://open.feishu.cn/wiki/{doc_ref.token}"
             wiki_line = (
-                f"知识库请先：{lark_cmds.inspect_wiki(wiki_url)}\n"
+                f"知识库请先：{lark_cmds.inspect_wiki(doc_ref.token)}\n"
                 "用返回的 data.token 作为 docx token，再 fetch。\n"
             )
         dest = ""
@@ -396,7 +395,7 @@ class Enricher:
         document_id: str,
         local_labels: list[str],
     ) -> str:
-        doc = (doc_ref.url or "").strip() or document_id or doc_ref.token
+        doc = (document_id or doc_ref.token).strip()
         page_id = document_id or "<page_id>"
         xml_arg = relpath(xml_path) if xml_path is not None else "data/jobs/<token>/enrich.xml"
         after_xml = (

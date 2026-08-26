@@ -3,28 +3,29 @@
 from __future__ import annotations
 
 
-def inspect_wiki(url: str) -> str:
-    return f"lark-cli drive +inspect --url '{url}'"
+def inspect_wiki(token: str) -> str:
+    """Resolve a wiki node token to the underlying docx token. Pass token, not URL."""
+    return f"lark-cli drive +inspect --url '{token}' --type wiki"
 
 
-def fetch_markdown(doc: str) -> str:
+def fetch_markdown(token: str) -> str:
     return (
         "lark-cli docs +fetch --api-version v2 "
-        f"--doc '{doc}' --doc-format markdown"
+        f"--doc '{token}' --doc-format markdown"
     )
 
 
-def fetch_xml(doc: str) -> str:
+def fetch_xml(token: str) -> str:
     return (
         "lark-cli docs +fetch --api-version v2 "
-        f"--doc '{doc}' --doc-format xml --detail full"
+        f"--doc '{token}' --doc-format xml --detail full"
     )
 
 
-def fetch_xml_with_ids(doc: str) -> str:
+def fetch_xml_with_ids(token: str) -> str:
     return (
         "lark-cli docs +fetch --api-version v2 "
-        f"--doc '{doc}' --doc-format xml --detail with-ids"
+        f"--doc '{token}' --doc-format xml --detail with-ids"
     )
 
 
@@ -36,9 +37,9 @@ def media_download(token: str, output: str, *, whiteboard: bool = False) -> str:
     )
 
 
-def docs_append_xml(doc: str, xml_path: str) -> str:
+def docs_append_xml(token: str, xml_path: str) -> str:
     return (
-        f"lark-cli docs +update --doc '{doc}' --command append "
+        f"lark-cli docs +update --doc '{token}' --command append "
         f"--doc-format xml --content \"$(cat '{xml_path}')\""
     )
 
@@ -50,4 +51,7 @@ def docs_move_blocks(page_id: str, src_block_ids: str) -> str:
     )
 
 
-AUTH_HINT = "调用 lark-cli 时不要加 --profile 或 --as。"
+AUTH_HINT = (
+    "调用 lark-cli 时不要加 --profile 或 --as。"
+    "拉文档、写回请传 token，不要传 feishu.doubao.com 等完整 URL。"
+)

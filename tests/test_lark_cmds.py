@@ -5,15 +5,29 @@ from feishu.payload import document_from_fetch
 
 
 def test_cmds_omit_profile_and_as():
-    url = "https://example.feishu.cn/wiki/WikiTok"
-    assert "--profile" not in lark_cmds.inspect_wiki(url)
-    assert "--as" not in lark_cmds.fetch_markdown("doxcn1")
-    assert "--as" not in lark_cmds.fetch_xml("doxcn1")
+    wiki = lark_cmds.inspect_wiki("WikiTok")
+    assert wiki == "lark-cli drive +inspect --url 'WikiTok' --type wiki"
+    assert "https://" not in wiki
+    fetch = lark_cmds.fetch_markdown("doxcn1")
+    assert "--doc 'doxcn1'" in fetch
+    assert "https://" not in fetch
+    assert "--as" not in fetch
     assert "--profile" not in lark_cmds.media_download("tok", "/tmp/tok")
     assert " --type whiteboard" in lark_cmds.media_download(
         "wb", "/tmp/wb", whiteboard=True
     )
-    assert lark_cmds.AUTH_HINT == "调用 lark-cli 时不要加 --profile 或 --as。"
+    assert "不要传 feishu.doubao.com" in lark_cmds.AUTH_HINT
+
+
+def test_extract_doc_refs_from_doubao_url():
+    from parser.message import extract_doc_refs
+
+    refs = extract_doc_refs(
+        "看这篇 https://feishu.doubao.com/docx/AbCToken 谢谢"
+    )
+    assert len(refs) == 1
+    assert refs[0].kind == "docx"
+    assert refs[0].token == "AbCToken"
 
 
 def test_document_from_fetch_json_and_plain():

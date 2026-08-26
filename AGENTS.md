@@ -60,10 +60,10 @@ flowchart LR
 在项目根目录（或传入 `--root`）下用 `uv run python` 执行对应脚本。若 `uv` 不在当前 PATH，用绝对路径调用 uv（常见 `$HOME/.local/bin/uv`）。`hugo` 不在 PATH 时用 `$HOME/.local/bin/hugo`：
 
 ```bash
-# 先用 lark-cli 拉文档（不要 --profile / --as），再跑脚本
-uv run python skills/download-feishu-doc/scripts/run.py --url '…'
-uv run python skills/enrich-doc/scripts/run.py inspect --url '…'
-uv run python skills/enrich-doc/scripts/run.py apply --url '…' --slug … --lang zh --title '…' --date YYYY-MM-DD --author '内容编辑' --categories '…' --summary '…'
+# 先用 lark-cli 拉文档：只传 token，不要传 feishu.doubao.com 等完整 URL（不要 --profile / --as）
+uv run python skills/download-feishu-doc/scripts/run.py --token '…'
+uv run python skills/enrich-doc/scripts/run.py inspect --token '…'
+uv run python skills/enrich-doc/scripts/run.py apply --token '…' --slug … --lang zh --title '…' --date YYYY-MM-DD --author '内容编辑' --categories '…' --summary '…'
 uv run python skills/convert-website/scripts/run.py
 uv run python skills/compress-media/scripts/run.py
 uv run python skills/deploy-local/scripts/run.py
@@ -72,7 +72,7 @@ uv run python skills/deploy-cloud/scripts/run.py --sk '用户给的口令'
 uv run python skills/clean-generated/scripts/run.py
 ```
 
-`download-feishu-doc` / `enrich-doc` 的脚本**只处理本地文件**。拉云文档、写回属性表：按对应 `skills/*/SKILL.md` 用 lark-cli（`docs +fetch`、`drive +inspect`、`docs +update`）。wiki 先 `drive +inspect` 得到 docx token。正文里的图片/视频如果已是完整 URL，由 `download-feishu-doc` 脚本直接下载到 `data/jobs/<token>/media/`，不要逐个 `media-download`。只有没有 URL 的 token（画板等）才用 `docs +media-download`。缺文件时脚本会把应执行的命令打在标准输出。
+`download-feishu-doc` / `enrich-doc` 的脚本**只处理本地文件**。拉云文档、写回属性表：按对应 `skills/*/SKILL.md` 用 lark-cli（`docs +fetch --doc TOKEN`、`drive +inspect --url TOKEN --type wiki`、`docs +update --doc TOKEN`）。从用户链接取出路径上的 token，**不要**把 `https://feishu.doubao.com/...` 传给 lark-cli（该域名可能无法解析）。wiki 先 inspect 得到底层 docx token。正文里的图片/视频如果已是完整媒体 URL，由 `download-feishu-doc` 脚本直接下载到 `data/jobs/<token>/media/`，不要逐个 `media-download`。只有没有 URL 的 token（画板等）才用 `docs +media-download`。缺文件时脚本会把应执行的命令打在标准输出。
 
 上次任务产物：`data/last-job.json`（token、slug、路径、预览 URL）。**没有新的飞书文档链接**时（例如只说「出公众号」）可先读它。用户消息里带了文档链接——哪怕和上次同一篇——必须重新跑 `download-feishu-doc`，不要用旧 `processed.md` 代替下载（云文档可能已改过）。这不是会话记忆。没有特别说明时，官网和公众号都要转换；用户明确只要一路才省略另一路。公众号读 `processed.md`，不读官网 Hugo 稿。
 

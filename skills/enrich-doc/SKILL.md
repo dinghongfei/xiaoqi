@@ -29,21 +29,21 @@ enrich-doc/
 
 ## 你来执行 lark-cli（脚本不会调）
 
-调用时**不要**加 `--profile` 或 `--as`。
+调用时**不要**加 `--profile` 或 `--as`。从用户链接取出 token，**只把 token 传给 lark-cli**，不要传 `feishu.doubao.com` 等完整 URL。
 
 inspect 之前若还没有 `data/jobs/<token>/raw.md`，先 fetch markdown：
 
 ```bash
-lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format markdown
+lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format markdown
 ```
 
-知识库 wiki 先：`lark-cli drive +inspect --url '…'`，用返回的 `data.token` 作为 docx token。
+知识库 wiki 先：`lark-cli drive +inspect --url 'WIKI_TOKEN' --type wiki`，用返回的 `data.token` 作为 docx token。
 
 apply 之后脚本会写出 `data/jobs/<token>/enrich.xml`。若用户要写回云文档，你再执行：
 
 ```bash
-lark-cli docs +update --doc 'DOC' --command append --doc-format xml --content "$(cat 'data/jobs/<token>/enrich.xml')"
-lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format xml --detail with-ids
+lark-cli docs +update --doc 'DOCX_TOKEN' --command append --doc-format xml --content "$(cat 'data/jobs/<token>/enrich.xml')"
+lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format xml --detail with-ids
 ```
 
 把 with-ids XML 存成 `data/jobs/<token>/after.xml`，取出属性区块 id：
@@ -73,8 +73,8 @@ flowchart LR
 ```
 
 ```bash
-uv run python <本Skill目录>/scripts/run.py inspect --url 'https://xxx.feishu.cn/docx/TOKEN'
-uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn/docx/TOKEN' \
+uv run python <本Skill目录>/scripts/run.py inspect --token 'DOCX_TOKEN'
+uv run python <本Skill目录>/scripts/run.py apply --token 'DOCX_TOKEN' \
   --slug demo-article --lang zh --title '标题' --date 2026-08-22 \
   --author '内容编辑' --categories '具身智能' --summary '摘要' \
   --cover-prompt '封面提示词'

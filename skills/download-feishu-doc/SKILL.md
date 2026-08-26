@@ -36,19 +36,19 @@ flowchart LR
 
 ## 你来执行 lark-cli（脚本不会调）
 
-调用时**不要**加 `--profile` 或 `--as`。把 stdout 里的正文写入工作区文件；若整段是 JSON，也可原样保存（脚本会读 `data.document.content`）。
+调用时**不要**加 `--profile` 或 `--as`。从用户链接里取出路径上的 token（`/docx/TOKEN` 或 `/wiki/TOKEN`），**只把 token 传给 lark-cli**。不要把 `https://feishu.doubao.com/...` 等完整 URL 传给 `--doc` / `--url`，否则可能报无法解析该域名。
 
 知识库 wiki 先解析成 docx token：
 
 ```bash
-lark-cli drive +inspect --url 'https://xxx.feishu.cn/wiki/TOKEN'
+lark-cli drive +inspect --url 'WIKI_TOKEN' --type wiki
 ```
 
-用返回的 `data.token` 作为下面的 `'DOC'`（docx 链接可直接用 URL 或 token）：
+用返回的 `data.token` 作为下面的 docx token：
 
 ```bash
-lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format markdown
-lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format xml --detail full
+lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format markdown
+lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format xml --detail full
 ```
 
 写入：
@@ -70,11 +70,11 @@ lark-cli docs +media-download --token 'MEDIA_TOKEN' --output 'data/jobs/<token>/
 ## 命令
 
 ```bash
-uv run python <本Skill目录>/scripts/run.py --url 'https://xxx.feishu.cn/docx/TOKEN'
-uv run python <本Skill目录>/scripts/run.py --url 'https://xxx.feishu.cn/wiki/TOKEN' --section blog --root /path/to/workspace
+uv run python <本Skill目录>/scripts/run.py --token 'DOCX_TOKEN'
+uv run python <本Skill目录>/scripts/run.py --token 'WIKI_TOKEN' --kind wiki --section blog --root /path/to/workspace
 ```
 
-也可显式传入已保存的文件：`--markdown`、`--xml`、`--media-dir`、`--document-id`。栏目固定 `blog`。
+也可传 `--url`（脚本只从路径里取 token，不会去解析域名）。还可显式传入已保存的文件：`--markdown`、`--xml`、`--media-dir`、`--document-id`。栏目固定 `blog`。
 
 ## 依赖
 

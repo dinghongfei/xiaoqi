@@ -113,10 +113,13 @@ def test_download_missing_markdown_prints_lark_cli(tmp_path: Path):
     )
     assert result.status == "error"
     assert "lark-cli docs +fetch" in result.message
+    assert "--doc 'AbCToken'" in result.message
     for line in result.message.splitlines():
         if line.startswith("lark-cli"):
             assert "--profile" not in line
             assert "--as" not in line
+            assert "https://" not in line
+            assert "feishu.doubao.com" not in line
     assert "raw.md" in result.message
 
 

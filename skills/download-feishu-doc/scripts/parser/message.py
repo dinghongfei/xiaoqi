@@ -7,12 +7,14 @@ from typing import Literal
 
 from parser.metadata import VALID_SECTIONS
 
-FEISHU_HOST = r"[a-zA-Z0-9.-]+\.feishu\.cn"
+# Path-based, not host-based: doubao.com / feishu.cn / larksuite.com all work.
 DOCX_URL_PATTERN = re.compile(
-    rf"https?://{FEISHU_HOST}/docx/([a-zA-Z0-9_-]+)"
+    r"https?://[^\s/]+/docx/([a-zA-Z0-9_-]+)",
+    re.IGNORECASE,
 )
 WIKI_URL_PATTERN = re.compile(
-    rf"https?://{FEISHU_HOST}/wiki/([a-zA-Z0-9_-]+)"
+    r"https?://[^\s/]+/wiki/([a-zA-Z0-9_-]+)",
+    re.IGNORECASE,
 )
 PUBLISH_VERBS = frozenset({"发布", "deploy"})
 ENRICH_VERBS = frozenset({"补全", "enrich"})
