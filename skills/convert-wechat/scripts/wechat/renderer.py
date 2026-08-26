@@ -194,6 +194,37 @@ def _abs_url(src: str, base: str) -> str:
     return base.rstrip("/") + "/" + src.lstrip("/")
 
 
+COVER_HINT = (
+    "此为封面图。复制到公众号编辑器后，请先设置封面，再手动删除本提示和横线。"
+    "复制正文时若不勾选「复制封面图」，这三项都不会带上。"
+)
+
+
+def resolve_cover_url(meta_src: str, job_src: str, site_base_url: str) -> str:
+    """Prefer a site path from metadata or last-job, then make it absolute."""
+    meta = (meta_src or "").strip()
+    job = (job_src or "").strip()
+    if meta.startswith(("/", "http://", "https://")):
+        raw = meta
+    elif job.startswith(("/", "http://", "https://")):
+        raw = job
+    else:
+        raw = meta or job
+    return _abs_url(raw, site_base_url) if raw else ""
+
+
+def _cover_block_html(src: str) -> str:
+    if not src:
+        return ""
+    return (
+        f'<div class="wx-cover-block" data-wx-cover="1">'
+        f'<img class="wx-cover-img" src="{html.escape(src, quote=True)}" alt="封面图">'
+        f'<p class="wx-cover-hint">{html.escape(COVER_HINT)}</p>'
+        f'<hr class="wx-cover-rule">'
+        f"</div>"
+    )
+
+
 def _hugo_site_title(hugo_root: Path | None) -> str:
     if hugo_root is None:
         return "演示站点"
@@ -519,20 +550,27 @@ def _chrome_css() -> str:
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
     }
     .wx-app { display: flex; flex-direction: column; height: 100%; }
+    .wx-stage {
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
     .wx-toolbar {
       flex: none;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 10px 16px;
+      gap: 8px;
+      padding: 6px 12px;
       background: #fff;
       border-bottom: 1px solid #e5e7eb;
     }
     .wx-toolbar__left {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 10px;
       min-width: 0;
     }
     .wx-home {
@@ -549,7 +587,7 @@ def _chrome_css() -> str:
       border: 1px solid #e5e7eb;
       background: #fff;
       color: #111827;
-      padding: 6px 12px;
+      padding: 4px 10px;
       border-radius: 6px;
       cursor: pointer;
       font-size: 13px;
@@ -558,10 +596,27 @@ def _chrome_css() -> str:
       background: #2563EB;
       border-color: #2563EB;
       color: #fff;
-      font-size: 14px;
-      padding: 8px 14px;
+      font-size: 13px;
+      padding: 4px 10px;
     }
     .wx-copy:disabled { opacity: 0.65; cursor: wait; }
+    .wx-toolbar__right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: none;
+    }
+    .wx-copy-cover {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #374151;
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .wx-copy-cover input { margin: 0; }
     .wx-seg button[aria-pressed="true"] {
       border-color: #111827;
       font-weight: 600;
@@ -597,6 +652,48 @@ def _chrome_css() -> str:
       border: 1px solid #e5e7eb;
       border-radius: 8px;
       padding: 28px 24px;
+    }
+    #article-html .wx-cover-block { margin: 0 0 1.25em; }
+    #article-html .wx-cover-img {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 2.35 / 1;
+      object-fit: cover;
+      object-position: center;
+      margin: 0;
+      cursor: zoom-in;
+    }
+    .wx-cover-zoom {
+      position: fixed;
+      z-index: 80;
+      display: none;
+      pointer-events: none;
+      padding: 8px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+    }
+    .wx-cover-zoom.is-open { display: block; }
+    .wx-cover-zoom img {
+      display: block;
+      width: auto;
+      height: auto;
+      max-width: min(86vw, 680px);
+      max-height: min(76vh, 600px);
+      object-fit: contain;
+    }
+    #article-html .wx-cover-hint {
+      margin: 8px 0 0;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #6b7280;
+    }
+    #article-html .wx-cover-rule {
+      margin: 12px 0 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
     }
     .wx-panel {
       width: 300px;
@@ -681,7 +778,7 @@ def _preview_script() -> str:
       const host = document.getElementById("article-html");
       const deviceEl = document.getElementById("wx-device");
       const btn = document.getElementById("copy-btn");
-      const LABEL = "正文复制";
+      const LABEL = "复制正文";
       const storageKey = "wx-preview-style-v1:" + (document.body.getAttribute("data-slug") || "default");
       const STYLE_PROPS = [
         "color", "background-color",
@@ -696,7 +793,7 @@ def _preview_script() -> str:
         "border-left-width", "border-left-style", "border-left-color",
         "border-radius", "word-break", "display", "white-space"
       ];
-      const IMG_PROPS = ["max-width", "height", "display"];
+      const IMG_PROPS = ["max-width", "width", "height", "display", "object-fit", "object-position", "aspect-ratio"];
       const INLINE_TAGS = {
         a: 1, b: 1, code: 1, del: 1, em: 1, i: 1, mark: 1, small: 1, span: 1, strong: 1, u: 1
       };
@@ -886,12 +983,18 @@ def _preview_script() -> str:
         if (!ok) throw new Error("当前浏览器不允许写入剪贴板");
       }
 
+      function copyRoot() {
+        const coverBox = document.getElementById("copy-cover");
+        if (coverBox && coverBox.checked) return host;
+        return host.querySelector(".wechat-article") || host;
+      }
+
       async function copyArticle() {
         btn.disabled = true;
         btn.textContent = "正在复制…";
         btn.removeAttribute("title");
         try {
-          const live = host.querySelector(".wechat-article") || host;
+          const live = copyRoot();
           const clone = snapshotInline(live);
           flattenListEmphasis(clone);
           wrapListBareText(clone);
@@ -944,6 +1047,55 @@ def _preview_script() -> str:
         }
         apply();
       });
+      function bindCoverZoom() {
+        const img = host.querySelector(".wx-cover-img");
+        if (!img) return;
+        const pop = document.createElement("div");
+        pop.className = "wx-cover-zoom";
+        pop.setAttribute("aria-hidden", "true");
+        const full = document.createElement("img");
+        full.alt = "封面图完整预览";
+        pop.appendChild(full);
+        document.body.appendChild(pop);
+
+        let lastEv = null;
+
+        function hide() {
+          pop.classList.remove("is-open");
+        }
+
+        function place(ev) {
+          lastEv = ev;
+          const pad = 16;
+          const rect = pop.getBoundingClientRect();
+          let x = ev.clientX + 18;
+          let y = ev.clientY + 18;
+          const w = rect.width || 240;
+          const h = rect.height || 160;
+          if (x + w > window.innerWidth - pad) x = ev.clientX - w - 12;
+          if (y + h > window.innerHeight - pad) y = window.innerHeight - h - pad;
+          if (x < pad) x = pad;
+          if (y < pad) y = pad;
+          pop.style.left = x + "px";
+          pop.style.top = y + "px";
+        }
+
+        full.addEventListener("load", () => {
+          if (pop.classList.contains("is-open") && lastEv) place(lastEv);
+        });
+
+        img.addEventListener("mouseenter", (ev) => {
+          full.src = img.currentSrc || img.getAttribute("src") || "";
+          pop.classList.add("is-open");
+          place(ev);
+        });
+        img.addEventListener("mousemove", place);
+        img.addEventListener("mouseleave", hide);
+        deviceEl.addEventListener("scroll", hide, { passive: true });
+        window.addEventListener("blur", hide);
+      }
+
+      bindCoverZoom();
       btn.addEventListener("click", copyArticle);
       apply();
     })();
@@ -958,6 +1110,7 @@ def build_preview_page(
     author: str = "",
     summary: str = "",
     home_label: str = "演示站点",
+    cover_image: str = "",
 ) -> str:
     """Wrap article with device preview, style panel, and copy toolbar."""
     safe_title = html.escape(title)
@@ -968,6 +1121,13 @@ def build_preview_page(
     panel = _panel_html(title=title, author=author, summary=summary)
     payload = theme_data_json()
     device_seg = _seg_buttons("device", [("phone", "手机"), ("desktop", "电脑")])
+    cover_html = _cover_block_html(cover_image)
+    cover_toggle = ""
+    if cover_image:
+        cover_toggle = (
+            '<label class="wx-copy-cover" for="copy-cover">'
+            '<input type="checkbox" id="copy-cover" checked> 复制封面图</label>'
+        )
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -981,19 +1141,24 @@ def build_preview_page(
 </head>
 <body data-slug="{safe_slug}">
   <div class="wx-app">
-    <header class="wx-toolbar">
-      <div class="wx-toolbar__left">
-        <a class="wx-home" href="/">{safe_home}</a>
-        {device_seg}
-      </div>
-      <button type="button" class="wx-copy" id="copy-btn">正文复制</button>
-    </header>
     <div class="wx-body">
-      <main class="wx-preview">
-        <div id="wx-device" data-device="phone">
-          <div id="article-html">{article_html}</div>
-        </div>
-      </main>
+      <div class="wx-stage">
+        <header class="wx-toolbar">
+          <div class="wx-toolbar__left">
+            <a class="wx-home" href="/">{safe_home}</a>
+            {device_seg}
+          </div>
+          <div class="wx-toolbar__right">
+            {cover_toggle}
+            <button type="button" class="wx-copy" id="copy-btn">复制正文</button>
+          </div>
+        </header>
+        <main class="wx-preview">
+          <div id="wx-device" data-device="phone">
+            <div id="article-html">{cover_html}{article_html}</div>
+          </div>
+        </main>
+      </div>
       {panel}
     </div>
   </div>
@@ -1043,6 +1208,11 @@ def convert_wechat(
     xml_path = abs_from_job(settings, job.get("xml_path"))
     if xml_path is not None and xml_path.is_file():
         xml_text = xml_path.read_text(encoding="utf-8")
+    cover_image = resolve_cover_url(
+        parsed.featured_image if parsed is not None else "",
+        str(job.get("featured_image") or ""),
+        settings.site_base_url,
+    )
     try:
         article = _extract_article_div(
             restyle_markdown(
@@ -1061,6 +1231,7 @@ def convert_wechat(
         author=author,
         summary=summary,
         home_label=_hugo_site_title(settings.hugo_root),
+        cover_image=cover_image,
     )
 
     out_dir = settings.preview_dir / "_wechat" / lang / slug

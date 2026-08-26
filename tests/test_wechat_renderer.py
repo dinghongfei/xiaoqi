@@ -12,7 +12,10 @@ from wechat.renderer import (
     restyle_markdown,
     build_preview_page,
     wrap_list_bare_text,
+    COVER_HINT,
+    resolve_cover_url,
 )
+from wechat.source import parse_processed_markdown, pick_cover_image
 from wechat.themes import theme_payload
 
 
@@ -59,6 +62,30 @@ SAMPLE_PROCESSED = """# 飞书文档标题
 # 一、什么是具身智能
 
 {{< figure src="/image/demo-cover.svg" caption="示意图说明" >}}
+
+正文保持原意。
+"""
+
+SAMPLE_PROCESSED_WITH_COVER = """# 飞书文档标题
+
+# 属性
+| slug | 文件名 | hello-preview |
+| lang | 中文写zh, 英文写en | zh |
+| title | 标题 | 你好 |
+| date | 时间 | 2026-03-01 |
+| author | 作者 | 内容编辑 |
+| categories | 分类 | 演示 |
+| summary | 摘要 | 摘要文字 |
+
+# 图片
+
+![封面](/image/hero.png)
+
+---
+
+# 一、什么是具身智能
+
+![正文插图](/image/body.png)
 
 正文保持原意。
 """
@@ -306,8 +333,14 @@ def test_theme_payload_has_first_wave_presets():
 
 def test_preview_page_has_copy_device_and_style_panel():
     page = build_preview_page("<div class='wechat-article'><p>正文</p></div>", slug="demo")
-    assert "正文复制" in page
+    assert "复制正文" in page
+    assert "正文复制" not in page
     assert "copy-btn" in page
+    assert "wx-toolbar__right" in page
+    assert "wx-stage" in page
+    assert "copyRoot" in page
+    assert 'class="wx-cover-img"' not in page
+    assert 'id="copy-cover"' not in page
     assert "article-html" in page
     assert "style-panel" in page
     assert "readAsDataURL" in page
@@ -380,7 +413,7 @@ def test_convert_wechat_writes_preview_tree(tmp_path: Path):
     page = (preview / "_wechat" / "zh-cn" / "hello-preview" / "index.html").read_text(
         encoding="utf-8"
     )
-    assert "正文复制" in page
+    assert "复制正文" in page
     assert "wechat-article" in page
     assert "style-panel" in page
     assert "wx-theme-data" in page
@@ -429,10 +462,85 @@ def test_convert_wechat_reads_processed_markdown(tmp_path: Path):
     assert 'data-copy="内容编辑"' in page
     assert 'data-copy="摘要文字"' in page
     assert "封面提示词不要出现在正文" not in page
+    assert 'class="wx-cover-img"' not in page
+    assert 'id="copy-cover"' not in page
     assert "飞书文档标题" not in page
     assert "| slug |" not in page
     assert "示意图说明" in page
     assert "正文保持原意" in page
+
+
+def test_pick_cover_image_from_image_section_only():
+    region = (
+        "# 属性\n| slug | 文件名 | demo |\n\n"
+        "# 图片\n\n![封面](/image/hero.png)\n"
+    )
+    assert pick_cover_image(region) == "/image/hero.png"
+    assert pick_cover_image("# 属性\n\n# 图片\n\n仅有文字提示\n") == ""
+    parsed = parse_processed_markdown(SAMPLE_PROCESSED)
+    assert parsed is not None
+    assert parsed.featured_image == ""
+    with_cover = parse_processed_markdown(SAMPLE_PROCESSED_WITH_COVER)
+    assert with_cover is not None
+    assert with_cover.featured_image == "/image/hero.png"
+
+
+def test_resolve_cover_url_prefers_site_path():
+    base = "http://127.0.0.1:1314"
+    assert resolve_cover_url("cover.png", "/image/job.png", base) == (
+        f"{base}/image/job.png"
+    )
+    assert resolve_cover_url("/image/meta.png", "/image/job.png", base) == (
+        f"{base}/image/meta.png"
+    )
+    assert resolve_cover_url("", "", base) == ""
+
+
+def test_preview_page_cover_block_and_copy_toggle():
+    page = build_preview_page(
+        "<div class='wechat-article'><p>正文</p></div>",
+        cover_image="http://127.0.0.1:1314/image/hero.png",
+    )
+    cover_at = page.find("wx-cover-block")
+    article_at = page.find("wechat-article")
+    assert 0 <= cover_at < article_at
+    assert 'class="wx-cover-img"' in page
+    assert "http://127.0.0.1:1314/image/hero.png" in page
+    assert "aspect-ratio: 2.35 / 1" in page
+    assert COVER_HINT in page
+    assert "wx-cover-rule" in page
+    assert 'id="copy-cover" checked' in page
+    assert "复制封面图" in page
+    assert "copyRoot" in page
+    assert "bindCoverZoom" in page
+    assert "cursor: zoom-in" in page
+    assert "wx-cover-zoom" in page
+    assert page.index("wx-cover-hint") < page.index("wx-cover-rule")
+
+
+def test_convert_wechat_shows_cover_from_processed_markdown(tmp_path: Path):
+    processed = tmp_path / "processed.md"
+    processed.write_text(SAMPLE_PROCESSED_WITH_COVER, encoding="utf-8")
+    preview = tmp_path / "preview"
+    settings = Settings(
+        hugo_root=tmp_path / "site",
+        hugo_deploy_dir=preview,
+        last_job_path=tmp_path / "last-job.json",
+        site_base_url="http://127.0.0.1:1314",
+    )
+    dump_last_job(settings, {"processed_markdown_path": str(processed)})
+    result = convert_wechat(settings)
+    assert result.status == "ok"
+    page = (preview / "_wechat" / "zh-cn" / "hello-preview" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'class="wx-cover-img"' in page
+    assert "http://127.0.0.1:1314/image/hero.png" in page
+    assert COVER_HINT in page
+    assert "复制封面图" in page
+    assert "一、什么是具身智能" in page
+    assert page.index("wx-cover-img") < page.index("一、什么是具身智能")
+    assert "body.png" in page
 
 
 def test_convert_wechat_catalog_overwrites_same_slug(tmp_path: Path):

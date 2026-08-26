@@ -6,6 +6,12 @@ import re
 from dataclasses import dataclass
 
 _TABLE_ROW = re.compile(r"^\|")
+_IMAGE_HEADING_RE = re.compile(
+    r"(?:^#{1,6}\s*图片\s*$)|(?:<h[1-6][^>]*>\s*图片\s*</h[1-6]>)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_HTML_SRC_RE = re.compile(r'\bsrc="([^"]+)"', re.IGNORECASE)
 
 
 @dataclass
@@ -16,6 +22,7 @@ class WeChatSource:
     lang: str = ""
     author: str = ""
     summary: str = ""
+    featured_image: str = ""
 
 
 def normalize_wechat_lang(lang: str) -> str:
@@ -25,6 +32,25 @@ def normalize_wechat_lang(lang: str) -> str:
     if raw in {"en", "en-us", "en_us"}:
         return "en"
     return raw
+
+
+def pick_cover_image(metadata_region: str) -> str:
+    """First image in the「图片」section; body illustrations are ignored."""
+    text = metadata_region or ""
+    heading = _IMAGE_HEADING_RE.search(text)
+    section = text[heading.end() :] if heading else ""
+    if not section.strip():
+        return ""
+    next_heading = re.search(r"^#{1,6}\s+\S+", section, re.MULTILINE)
+    if next_heading:
+        section = section[: next_heading.start()]
+    md = _MD_IMAGE_RE.search(section)
+    if md:
+        return md.group(2).strip()
+    html_src = _HTML_SRC_RE.search(section)
+    if html_src:
+        return html_src.group(1).strip()
+    return ""
 
 
 def _table_cells(line: str) -> list[str] | None:
@@ -72,6 +98,7 @@ def parse_processed_markdown(text: str) -> WeChatSource | None:
         lang=normalize_wechat_lang(meta.get("lang", "")),
         author=meta.get("author", "").strip(),
         summary=meta.get("summary", "").strip(),
+        featured_image=pick_cover_image(region),
     )
 
 
