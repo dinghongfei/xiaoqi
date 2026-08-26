@@ -14,10 +14,9 @@ site/.hugo_build.lock
 preview/**
 !preview/.gitkeep
 
-# 安装时按本机 Agent 生成，整目录软链到 skills/；仓库只维护 skills/
+# 其它 IDE 发现目录（本分支不维护，不要提交）
 .cursor/
 .claude/
 .trae/
 .opencode/
-# Codex 发现目录（不是 .codex/skills）
 .agents/

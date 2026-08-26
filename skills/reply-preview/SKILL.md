@@ -1,13 +1,13 @@
 ---
 name: reply-preview
-description: 遗留 Skill：用飞书 OpenAPI 回复预览卡片。豆包 / IDE 场景不要调用；无 App 凭证时会跳过。
+description: 遗留 Skill：用飞书 OpenAPI 回复预览卡片。豆包工作 Agent 不要调用；无 App 凭证时会跳过。
 ---
 
 # 回复预览卡片
 
 用户能听懂的名字：**把预览发回飞书 / 回卡片**。
 
-本目录是完整 Skill，拷到其他 Agent 的 skills 下即可用，**不要**依赖宿主项目的 CLI 包。
+本目录是完整 Skill，由豆包工作 Agent 直接使用仓库 `skills/`。脚本只依赖本目录，**不要**调用宿主项目的 CLI 包。
 
 ```
 reply-preview/
@@ -23,7 +23,7 @@ reply-preview/
 
 ## 何时调用
 
-豆包工作 Agent 与 IDE 预览**不要**调用本 Skill：直接在对话里回复 `官网预览=` / `公众号预览=`。
+豆包工作 Agent **不要**调用本 Skill：直接在对话里回复 `官网预览=` / `公众号预览=`。
 
 无 `.env` 飞书应用凭证时脚本会跳过（成功退出），不要为此去创建应用或编造密钥。
 

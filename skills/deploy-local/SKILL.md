@@ -7,7 +7,7 @@ description: 对已有 site/ 跑 hugo 构建，把 public/ 拷到 preview/，供
 
 用户能听懂的名字：**本地部署 / 官网预览**。
 
-本目录是完整 Skill，拷到其他 Agent 的 skills 下即可用，**不要**依赖宿主项目的 CLI 包。
+本目录是完整 Skill，由豆包工作 Agent 直接使用仓库 `skills/`。脚本只依赖本目录，**不要**调用宿主项目的 CLI 包。
 
 ```
 deploy-local/

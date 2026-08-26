@@ -7,7 +7,7 @@ description: 清理生成稿：preview/_wechat、data/jobs、last-job.json。禁
 
 用户能听懂的名字：**清理工作区 / 清掉预览稿**。
 
-本目录是完整 Skill，拷到其他 Agent 的 skills 下即可用，**不要**依赖宿主项目的 CLI 包。
+本目录是完整 Skill，由豆包工作 Agent 直接使用仓库 `skills/`。脚本只依赖本目录，**不要**调用宿主项目的 CLI 包。
 
 ```
 clean-generated/

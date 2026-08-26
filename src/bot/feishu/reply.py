@@ -5,7 +5,7 @@ from __future__ import annotations
 from bot.config import Settings
 from bot.feishu.openapi import get_tenant_access_token, reply_text
 
-RECEIVED_ACK = "收到啦，正在交给本机 Agent 处理，请稍候～"
+RECEIVED_ACK = "收到啦，正在交给豆包工作 Agent 处理，请稍候～"
 
 
 def send_received_ack(settings: Settings, message_id: str) -> None:

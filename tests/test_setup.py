@@ -1,4 +1,4 @@
-"""Project config: .env, skill links. No Feishu app credentials required."""
+"""Project config: .env. No Feishu app credentials required."""
 
 from pathlib import Path
 

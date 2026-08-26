@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 仓库入口：安装本机预览栈、写 .env、软链 Skills、构建演示站并启动预览。
+# 仓库入口：安装本机预览栈、写 .env、构建演示站并启动预览。本分支专供豆包工作 Agent。
 # 不要交互提问。飞书读写走环境已登录的 lark-cli，不创建应用、不下载 CLI。
 set -euo pipefail
 

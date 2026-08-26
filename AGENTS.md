@@ -1,6 +1,6 @@
 # 飞书内容助手 Agent 指南
 
-面向可打开本仓库的豆包工作 Agent、Cursor、Claude Code、Trae、OpenCode、Codex。使用者**没有技术背景**，最多本机装了一个 Agent。不要让他们自己跑命令、改 PATH、或阅读安装文档。
+本分支专供**豆包工作 Agent**。使用者**没有技术背景**。不要让他们自己跑命令、改 PATH、或阅读安装文档。不要为 Cursor、Claude Code、Trae、OpenCode、Codex 等做适配或软链。
 
 不要自研 tool-calling 循环；内容任务按本文件和 `skills/*/SKILL.md` 调用**该 Skill 目录内的脚本**。
 
@@ -8,14 +8,9 @@
 
 飞书读写走**环境已登录的 lark-cli**（豆包工作 Agent 已内置）。由**你在对话里直接执行** lark-cli，再跑 Skill 脚本做本地加工。不要用 Python `LarkCliRunner` / subprocess 调 lark-cli。不要创建飞书应用、不要向用户要 App ID/Secret、不要下载或安装 lark-cli、调用时不要传 `--profile` 或 `--as`（含 `--as bot`）。
 
-## 支持的 Agent
+## 运行环境
 
-安装时会按本机已装的 IDE/Agent 软链项目级 `skills/`。豆包工作 Agent 直接使用仓库 `skills/` 与内置 lark-cli。
-
-| 名称 | 行为 |
-|------|------|
-| 豆包工作 Agent | 打开本仓库编排 Skills；lark-cli 已登录 |
-| Cursor、Claude Code、Trae、OpenCode、Codex | 安装时软链项目级 `skills/` |
+豆包工作 Agent 直接使用仓库 `skills/` 与内置已登录的 lark-cli。不要安装或下载 lark-cli，不要给其它 IDE/Agent 软链 `skills/`。
 
 ## 禁止
 
@@ -43,7 +38,7 @@ flowchart LR
 ```
 
    已有 `.env`、用户只是说「继续安装」时，同样直接 `./install.sh`。
-3. **脚本会自己做完：** 安装 curl、uv、Hugo Extended、尽量装 ffmpeg 并 `uv sync`；从 `.env.example` 写出 `.env`、给本机 Agent 软链 `skills/`、构建演示站、启动本地预览。
+3. **脚本会自己做完：** 安装 curl、uv、Hugo Extended、尽量装 ffmpeg 并 `uv sync`；从 `.env.example` 写出 `.env`、构建演示站、启动本地预览。
 4. **用中文汇报结果。** 成功就告诉用户打开 http://127.0.0.1:1314/ （首页左右两栏是已转换的官网文章和公众号文章），把一篇**当前账号能打开的**飞书云文档链接发给助手即可。失败就把脚本里的中文原因原样告诉用户，缺什么就说缺什么，然后按提示请用户做最少的一步（例如 Mac 上先装 Homebrew），用户说「继续安装」后再跑一次 `./install.sh`。
 
 若执行环境有沙箱，安装时要允许联网、允许写入项目目录和 `~/.local/bin`。
@@ -76,7 +71,7 @@ uv run python skills/clean-generated/scripts/run.py
 
 上次任务产物：`data/last-job.json`（token、slug、路径、预览 URL）。**没有新的飞书文档链接**时（例如只说「出公众号」）可先读它。用户消息里带了文档链接——哪怕和上次同一篇——必须重新跑 `download-feishu-doc`，不要用旧 `processed.md` 代替下载（云文档可能已改过）。这不是会话记忆。没有特别说明时，官网和公众号都要转换；用户明确只要一路才省略另一路。公众号读 `processed.md`，不读官网 Hugo 稿。
 
-豆包 / IDE 场景**不要**跑 `reply-preview`；直接在对话里回复预览地址。
+**不要**跑 `reply-preview`；直接在对话里回复预览地址。
 
 ## 推荐顺序（由你决定）
 

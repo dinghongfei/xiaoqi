@@ -1,4 +1,4 @@
-"""Install-time project initialization: write .env, detect local agents, symlink skills/."""
+"""Install-time project initialization: write .env. Doubao Work Agent uses repo skills/."""
 
 from __future__ import annotations
 
@@ -146,7 +146,8 @@ def apply_project_config(
     *,
     agents: list[AgentKind] | None = None,
 ) -> int:
-    """Ensure .env exists (from .env.example) and symlink skills/. Called by ./install.sh."""
+    """Ensure .env exists (from .env.example). Called by ./install.sh."""
+    del agents  # 本分支专供豆包工作 Agent，不再为其它 IDE 软链 skills/
     root = Path(root).resolve()
     os.environ["BOT_ROOT"] = str(root)
     if not (root / "site" / "hugo.toml").is_file():
@@ -158,21 +159,12 @@ def apply_project_config(
         print(f"✗ {exc}", file=sys.stderr)
         return 1
     print("✓ 已写入 .env（不创建飞书应用，读写走环境已登录的 lark-cli）")
-    try:
-        kinds = link_detected_agents(root, agents=agents)
-    except FileNotFoundError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        return 1
-    if kinds:
-        for kind in kinds:
-            print(f"✓ {kind.display}：{kind.skills_link} → skills/")
-    else:
-        print("⚠ 未探测到 Cursor / Claude Code / Trae / OpenCode / Codex，跳过项目级 skills 链接。")
+    print("✓ 豆包工作 Agent 直接使用仓库 skills/，无需项目级软链。")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="写入 .env 并为已装 Agent 软链 skills/")
+    parser = argparse.ArgumentParser(description="写入 .env（豆包工作 Agent 使用仓库 skills/）")
     parser.add_argument("--root", default="")
     args = parser.parse_args(argv)
     raw_root = (args.root or os.environ.get("BOT_ROOT") or "").strip()

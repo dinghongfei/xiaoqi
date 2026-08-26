@@ -1,6 +1,6 @@
-# Claude Code
+# 飞书内容助手
 
-本项目是飞书内容助手。先读 [AGENTS.md](AGENTS.md)。
+本分支专供**豆包工作 Agent**。先读 [AGENTS.md](AGENTS.md)。
 
 用户说「安装环境 / 初始化 / 帮我装」时：按 AGENTS.md 在仓库根目录执行 `./install.sh`。不要向用户要飞书 App ID 和 Secret，不要创建飞书应用，不要下载 lark-cli。不要自己发明安装步骤，不要让用户去终端敲命令。
 

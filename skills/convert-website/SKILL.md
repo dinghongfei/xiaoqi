@@ -7,7 +7,7 @@ description: 把已下载的飞书文档解析成官网 Hugo Markdown，写入 s
 
 用户能听懂的名字：**转换为官网文章**。
 
-本目录是完整 Skill，拷到其他 Agent 的 skills 下即可用，**不要**依赖宿主项目的 CLI 包。
+本目录是完整 Skill，由豆包工作 Agent 直接使用仓库 `skills/`。脚本只依赖本目录，**不要**调用宿主项目的 CLI 包。
 
 ```
 convert-website/

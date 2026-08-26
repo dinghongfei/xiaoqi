@@ -28,7 +28,7 @@ def _cmd_preview_http(args, settings) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bot",
-        description="飞书内容助手：IM 适配与本地预览（编排交给本机 Agent 与 skills/）",
+        description="飞书内容助手：本地预览（编排交给豆包工作 Agent 与 skills/）",
     )
     parser.add_argument("--env-file", default=None, help="环境文件，默认项目根目录 .env")
     sub = parser.add_subparsers(dest="command", required=True)
