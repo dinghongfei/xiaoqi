@@ -1,4 +1,4 @@
-"""Tests for download skill with a fake Feishu client."""
+"""Tests for download skill with Agent-fetched local files."""
 
 from pathlib import Path
 
@@ -21,19 +21,11 @@ RAW = """
 """
 
 
-class FakeClient:
-    def fetch_doc_markdown(self, doc):
-        return RAW, "docid"
-
-    def fetch_doc_xml(self, doc):
-        return "<doc></doc>"
-
-
-def test_download_writes_last_job(tmp_path: Path):
+def _settings(tmp_path: Path) -> Settings:
     hugo_root = tmp_path / "site"
     (hugo_root / "static" / "image").mkdir(parents=True)
     (hugo_root / "static" / "video").mkdir(parents=True)
-    settings = Settings(
+    return Settings(
         hugo_root=hugo_root,
         hugo_deploy_dir=tmp_path / "preview",
         last_job_path=tmp_path / "last-job.json",
@@ -41,9 +33,21 @@ def test_download_writes_last_job(tmp_path: Path):
         state_db_path=tmp_path / "state.db",
         media_compress_enabled=False,
     )
+
+
+def _seed(settings: Settings, token: str, markdown: str, xml: str = "<doc></doc>") -> Path:
+    work = Path(settings.jobs_dir) / token
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "raw.md").write_text(markdown, encoding="utf-8")
+    (work / "raw.xml").write_text(xml, encoding="utf-8")
+    return work
+
+
+def test_download_writes_last_job(tmp_path: Path):
+    settings = _settings(tmp_path)
+    _seed(settings, "AbCToken", RAW)
     result = download_feishu_doc(
         settings,
-        FakeClient(),
         DocRef(kind="docx", token="AbCToken", url="https://example.feishu.cn/docx/AbCToken"),
         section="blog",
     )
@@ -55,78 +59,37 @@ def test_download_writes_last_job(tmp_path: Path):
     assert (tmp_path / "jobs" / "AbCToken" / "processed.md").is_file()
 
 
-class CountingClient:
-    def __init__(self) -> None:
-        self.markdown_calls = 0
-        self.xml_calls = 0
-
-    def fetch_doc_markdown(self, doc):
-        self.markdown_calls += 1
-        body = RAW.replace("正文里没有媒体。", f"第{self.markdown_calls}次正文")
-        return body, "docid"
-
-    def fetch_doc_xml(self, doc):
-        self.xml_calls += 1
-        return f"<doc>{self.xml_calls}</doc>"
-
-
-def test_download_same_token_refetches_and_overwrites(tmp_path: Path):
-    hugo_root = tmp_path / "site"
-    (hugo_root / "static" / "image").mkdir(parents=True)
-    (hugo_root / "static" / "video").mkdir(parents=True)
-    settings = Settings(
-        hugo_root=hugo_root,
-        hugo_deploy_dir=tmp_path / "preview",
-        last_job_path=tmp_path / "last-job.json",
-        jobs_dir=tmp_path / "jobs",
-        state_db_path=tmp_path / "state.db",
-        media_compress_enabled=False,
-    )
+def test_download_same_token_overwrites_local_files(tmp_path: Path):
+    settings = _settings(tmp_path)
     ref = DocRef(
         kind="docx",
         token="AbCToken",
         url="https://example.feishu.cn/docx/AbCToken",
     )
-    client = CountingClient()
-    first = download_feishu_doc(settings, client, ref, section="blog")
-    second = download_feishu_doc(settings, client, ref, section="blog")
+    first_md = RAW.replace("正文里没有媒体。", "第1次正文")
+    second_md = RAW.replace("正文里没有媒体。", "第2次正文")
+    _seed(settings, "AbCToken", first_md, "<doc>1</doc>")
+    first = download_feishu_doc(settings, ref, section="blog")
+    _seed(settings, "AbCToken", second_md, "<doc>2</doc>")
+    second = download_feishu_doc(settings, ref, section="blog")
     assert first.status == "ok"
     assert second.status == "ok"
-    assert client.markdown_calls == 2
-    assert client.xml_calls == 2
     raw = (tmp_path / "jobs" / "AbCToken" / "raw.md").read_text(encoding="utf-8")
     assert "第2次正文" in raw
     assert "第1次正文" not in raw
-    assert "重新下载并覆盖本地稿" in second.message
+    assert "重新处理并覆盖本地稿" in second.message
 
 
 def test_download_keeps_raw_title_tag_and_processed_h1(tmp_path: Path):
-    hugo_root = tmp_path / "site"
-    (hugo_root / "static" / "image").mkdir(parents=True)
-    (hugo_root / "static" / "video").mkdir(parents=True)
-    settings = Settings(
-        hugo_root=hugo_root,
-        hugo_deploy_dir=tmp_path / "preview",
-        last_job_path=tmp_path / "last-job.json",
-        jobs_dir=tmp_path / "jobs",
-        state_db_path=tmp_path / "state.db",
-        media_compress_enabled=False,
+    settings = _settings(tmp_path)
+    _seed(
+        settings,
+        "AbCToken",
+        "<title>测试飞书云文档转换为公众号文章1</title>\n\n"
+        "# 一、什么是具身智能\n\n正文里没有媒体。\n",
     )
-
-    class TitleClient:
-        def fetch_doc_markdown(self, doc):
-            return (
-                "<title>测试飞书云文档转换为公众号文章1</title>\n\n"
-                "# 一、什么是具身智能\n\n正文里没有媒体。\n",
-                "docid",
-            )
-
-        def fetch_doc_xml(self, doc):
-            return "<doc></doc>"
-
     result = download_feishu_doc(
         settings,
-        TitleClient(),
         DocRef(kind="docx", token="AbCToken", url="https://example.feishu.cn/docx/AbCToken"),
         section="blog",
     )
@@ -139,3 +102,54 @@ def test_download_keeps_raw_title_tag_and_processed_h1(tmp_path: Path):
     assert processed.startswith("# 测试飞书云文档转换为公众号文章1\n")
     assert "<title>" not in processed
     assert "# 一、什么是具身智能" in processed
+
+
+def test_download_missing_markdown_prints_lark_cli(tmp_path: Path):
+    settings = _settings(tmp_path)
+    result = download_feishu_doc(
+        settings,
+        DocRef(kind="docx", token="AbCToken", url="https://example.feishu.cn/docx/AbCToken"),
+        section="blog",
+    )
+    assert result.status == "error"
+    assert "lark-cli docs +fetch" in result.message
+    for line in result.message.splitlines():
+        if line.startswith("lark-cli"):
+            assert "--profile" not in line
+            assert "--as" not in line
+    assert "raw.md" in result.message
+
+
+def test_download_http_image_url_saves_to_job_media(tmp_path: Path, monkeypatch):
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+
+    class Resp:
+        content = png
+        headers = {"content-type": "image/png"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr("media.downloader.httpx.get", lambda *a, **k: Resp())
+    settings = _settings(tmp_path)
+    url = (
+        "https://internal-api-drive-stream.feishu.cn/space/api/box/"
+        "stream/download/authcode/?code=abc"
+    )
+    md = RAW.replace("正文里没有媒体。", f"![图]({url})\n\n<img src=\"{url}\"/>\n")
+    _seed(settings, "AbCToken", md, f'<img src="{url}"/>')
+    result = download_feishu_doc(
+        settings,
+        DocRef(kind="docx", token="AbCToken", url="https://example.feishu.cn/docx/AbCToken"),
+        section="blog",
+    )
+    assert result.status == "ok"
+    media_files = list((tmp_path / "jobs" / "AbCToken" / "media").iterdir())
+    assert media_files
+    processed = (tmp_path / "jobs" / "AbCToken" / "processed.md").read_text(
+        encoding="utf-8"
+    )
+    assert "/image/" in processed
+    assert "authcode" not in processed
+    static_images = list((tmp_path / "site" / "static" / "image").iterdir())
+    assert static_images

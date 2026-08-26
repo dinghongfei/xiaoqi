@@ -27,7 +27,7 @@ def test_build_agent_prompt_mentions_skills_and_last_job():
     assert "uv run python" in prompt
     assert "./install.sh" in prompt
     assert "uv run bot" not in prompt
-    assert "reply-preview" in prompt
+    assert "reply-preview" not in prompt
     assert "om_1" in prompt
     assert "官网预览=" in prompt
     assert "公众号预览=" in prompt

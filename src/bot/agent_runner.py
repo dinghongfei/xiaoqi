@@ -132,14 +132,6 @@ def build_agent_prompt(
     uv_python = f"{uv} run python"
     chat_line = f"当前飞书 chat_id：{chat_id}\n" if chat_id else ""
     msg_line = f"当前飞书 message_id：{message_id}\n" if message_id else ""
-    reply_block = ""
-    if message_id:
-        reply_block = (
-            "完成后必须调用 reply-preview（成功或失败都要调，这是编排最后一步）：\n"
-            f"{uv_python} skills/reply-preview/scripts/run.py --message-id '{message_id}'\n"
-            "失败时加上 --summary '中文原因'。未传 URL 时脚本会读 data/last-job.json。\n"
-            "没有 message_id 时不要调用该 Skill。\n\n"
-        )
     return (
         "你是本机编码助手。工作目录是飞书内容助手项目根目录。\n"
         "请阅读 AGENTS.md 与 skills/ 下各 SKILL.md，按用户需求执行 "
@@ -150,7 +142,6 @@ def build_agent_prompt(
         "不要编造飞书/OSS 凭证；不要执行 git reset --hard。\n"
         f"{chat_line}"
         f"{msg_line}"
-        f"{reply_block}"
         "上次任务产物 data/last-job.json：\n"
         f"{job_blob}\n"
         "若用户原文含飞书文档链接：必须重新执行 download-feishu-doc"

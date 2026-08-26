@@ -1,7 +1,6 @@
 """Tests for enrich pipeline helpers and Enricher."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -168,17 +167,13 @@ def test_build_enrichment_xml_no_prompt_when_images_exist():
 
 
 def test_inspect_ready_without_cover_image():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        "<title>飞书原标题</title>\n\n正文：关于机器人的文章",
-        "doxcn123",
-    )
-    result = Enricher(client=client).inspect_doc(
+    result = Enricher().inspect_doc(
         DocRef(
             kind="docx",
             token="TokenOne",
             url="https://example.feishu.cn/docx/TokenOne",
-        )
+        ),
+        markdown_text="<title>飞书原标题</title>\n\n正文：关于机器人的文章",
     )
 
     assert result.status == "ready"
@@ -189,16 +184,14 @@ def test_inspect_ready_without_cover_image():
     blob = result.to_dict()
     assert blob["required_fields"][0] == "slug"
     assert "article_text" in blob
-    assert "can_edit" in blob
+    assert blob["can_edit"] is None
 
 
 def test_inspect_skips_cover_when_image_section_has_media():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        "# 图片\n\n![cover](img_token)\n\n正文关于机器人",
-        "doxcn123",
+    result = Enricher().inspect_doc(
+        DocRef(kind="docx", token="TokenOne"),
+        markdown_text="# 图片\n\n![cover](img_token)\n\n正文关于机器人",
     )
-    result = Enricher(client=client).inspect_doc(DocRef(kind="docx", token="TokenOne"))
 
     assert result.status == "ready"
     assert result.need_cover_prompt is False
@@ -206,154 +199,107 @@ def test_inspect_skips_cover_when_image_section_has_media():
 
 
 def test_inspect_rejects_existing_metadata():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        f"{SAMPLE_TABLE}\n---\n正文",
-        "doxcn123",
+    result = Enricher().inspect_doc(
+        DocRef(kind="docx", token="TokenOne"),
+        markdown_text=f"{SAMPLE_TABLE}\n---\n正文",
     )
-    result = Enricher(client=client).inspect_doc(DocRef(kind="docx", token="TokenOne"))
 
     assert result.status == "error"
     assert "已有属性信息" in result.message
 
 
 def test_apply_success_without_images_writes_cover_prompt():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    enricher = Enricher(client=client)
-
-    result = enricher.apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(
             kind="docx",
             token="TokenOne",
             url="https://example.feishu.cn/docx/TokenOne",
         ),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        markdown_text="正文：关于机器人的文章",
     )
 
     assert result.status == "enriched"
     assert result.slug == "demo-article"
     assert result.doc_url == "https://example.feishu.cn/docx/TokenOne"
     assert result.cover_prompt == "封面提示词"
-    client.prepend_doc_enrichment.assert_called_once()
-    kwargs = client.prepend_doc_enrichment.call_args.kwargs
-    assert kwargs["cover_prompt"] == "封面提示词"
-    assert kwargs["document_id"] == "doxcn123"
-
-
-def test_apply_surfaces_write_back_permission_error():
-    from feishu.client import FeishuAPIError
-
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    client.has_doc_edit_permission.return_value = True
-    client.prepend_doc_enrichment.side_effect = FeishuAPIError(
-        "机器人没有该文档的编辑权限。请在飞书文档/知识库把应用机器人加为「可编辑」协作者"
-    )
-    result = Enricher(client=client).apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
-    )
-
-    assert result.status == "error"
-    assert "编辑权限" in result.message
-    assert "已下载" in result.message
     assert result.wrote_cloud is False
+    assert "<h1>图片</h1>" in result.enrichment_xml
+    assert "封面提示词" in result.enrichment_xml
+    assert "lark-cli docs +update" in result.message
+    for line in result.message.splitlines():
+        if line.startswith("lark-cli"):
+            assert "--profile" not in line
+            assert "--as" not in line
 
 
 def test_apply_still_writes_cover_prompt_when_body_has_images():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        "正文\n\n![diagram](img_token)\n更多文字",
-        "doxcn123",
-    )
-    result = Enricher(client=client).apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        markdown_text="正文\n\n![diagram](img_token)\n更多文字",
     )
 
     assert result.status == "enriched"
     assert result.cover_prompt == "封面提示词"
-    kwargs = client.prepend_doc_enrichment.call_args.kwargs
-    assert kwargs["cover_prompt"] == "封面提示词"
-    assert kwargs["include_image_heading"] is True
+    assert "<h1>图片</h1>" in result.enrichment_xml
 
 
 def test_apply_skips_cover_prompt_when_image_section_has_media():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        "# 图片\n\n![cover](img_token)\n\n正文关于机器人",
-        "doxcn123",
-    )
-    result = Enricher(client=client).apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         dict(VALID_METADATA),
+        markdown_text="# 图片\n\n![cover](img_token)\n\n正文关于机器人",
     )
 
     assert result.status == "enriched"
     assert result.cover_prompt == ""
-    kwargs = client.prepend_doc_enrichment.call_args.kwargs
-    assert kwargs["cover_prompt"] is None
-    assert kwargs["include_image_heading"] is False
+    assert "<h1>图片</h1>" not in result.enrichment_xml
 
 
 def test_apply_skips_image_heading_when_already_present():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        "# 图片\n\n旧提示\n\n正文关于机器人",
-        "doxcn123",
-    )
-    result = Enricher(client=client).apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        markdown_text="# 图片\n\n旧提示\n\n正文关于机器人",
     )
 
     assert result.status == "enriched"
-    kwargs = client.prepend_doc_enrichment.call_args.kwargs
-    assert kwargs["cover_prompt"] == "封面提示词"
-    assert kwargs["include_image_heading"] is False
+    assert "封面提示词" in result.enrichment_xml
+    assert "<h1>图片</h1>" not in result.enrichment_xml
 
 
 def test_apply_rejects_existing_metadata():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = (
-        f"{SAMPLE_TABLE}\n---\n正文",
-        "doxcn123",
-    )
-    result = Enricher(client=client).apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        markdown_text=f"{SAMPLE_TABLE}\n---\n正文",
     )
 
     assert result.status == "error"
     assert "已有属性信息" in result.message
-    client.prepend_doc_enrichment.assert_not_called()
 
 
 def test_apply_requires_cover_prompt_when_needed():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("足够长的正文内容用于补全", "doxcn123")
-    result = Enricher(client=client).apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         dict(VALID_METADATA),
+        markdown_text="足够长的正文内容用于补全",
     )
 
     assert result.status == "error"
     assert "cover_prompt" in result.message
-    client.prepend_doc_enrichment.assert_not_called()
 
 
 def test_apply_rejects_invalid_metadata():
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("足够长的正文内容用于补全", "doxcn123")
-    result = Enricher(client=client).apply_metadata(
+    result = Enricher().apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {"slug": "Bad Slug", "cover_prompt": "封面"},
+        markdown_text="足够长的正文内容用于补全",
     )
 
     assert result.status == "error"
     assert "元数据" in result.message or "slug" in result.message
-    client.prepend_doc_enrichment.assert_not_called()
 
 
 def test_build_enrichment_markdown_is_parseable():
@@ -420,7 +366,7 @@ def _tmp_settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
+def test_apply_writes_local_files(tmp_path: Path):
     settings = _tmp_settings(tmp_path)
     work = Path(settings.jobs_dir) / "TokenOne"
     work.mkdir()
@@ -443,19 +389,15 @@ def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
         },
     )
 
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    client.has_doc_edit_permission.return_value = False
-
-    result = Enricher(client=client, settings=settings).apply_metadata(
+    result = Enricher(settings=settings).apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
     )
 
     assert result.status == "enriched"
     assert result.wrote_cloud is False
-    client.prepend_doc_enrichment.assert_not_called()
-    assert "本地已下载文档" in result.message
+    assert "本地" in result.message
+    assert "lark-cli docs +update" in result.message
     processed_text = processed.read_text(encoding="utf-8")
     raw_text = raw.read_text(encoding="utf-8")
     assert doc_already_has_metadata(processed_text)
@@ -469,100 +411,10 @@ def test_apply_writes_local_only_without_edit_permission(tmp_path: Path):
     assert "# 一、什么是具身智能" in processed_doc.body
     assert raw_text == original_raw
     assert "# 属性" not in raw_text
+    assert (work / "enrich.xml").is_file()
     job = load_last_job(settings)
     assert job["slug"] == "demo-article"
     assert job["metadata_warning"] == ""
-
-
-def test_apply_skips_cloud_probe_false_even_if_prepend_would_succeed(tmp_path: Path):
-    settings = _tmp_settings(tmp_path)
-    work = Path(settings.jobs_dir) / "TokenOne"
-    work.mkdir()
-    (work / "processed.md").write_text("正文：关于机器人的文章\n", encoding="utf-8")
-
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    client.has_doc_edit_permission.return_value = False
-
-    result = Enricher(client=client, settings=settings).apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
-    )
-
-    assert result.status == "enriched"
-    client.prepend_doc_enrichment.assert_not_called()
-
-
-def test_apply_permission_error_falls_back_to_local(tmp_path: Path):
-    from feishu.client import FeishuAPIError
-
-    settings = _tmp_settings(tmp_path)
-    work = Path(settings.jobs_dir) / "TokenOne"
-    work.mkdir()
-    processed = work / "processed.md"
-    processed.write_text("正文：关于机器人的文章\n", encoding="utf-8")
-
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    client.has_doc_edit_permission.return_value = True
-    client.prepend_doc_enrichment.side_effect = FeishuAPIError(
-        "机器人没有该文档的编辑权限。请在飞书文档/知识库把应用机器人加为「可编辑」协作者"
-    )
-
-    result = Enricher(client=client, settings=settings).apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
-    )
-
-    assert result.status == "enriched"
-    assert result.wrote_cloud is False
-    assert doc_already_has_metadata(processed.read_text(encoding="utf-8"))
-
-
-def test_apply_inconclusive_edit_probe_falls_back_to_local(tmp_path: Path):
-    from feishu.client import FeishuAPIError
-
-    settings = _tmp_settings(tmp_path)
-    work = Path(settings.jobs_dir) / "TokenOne"
-    work.mkdir()
-    processed = work / "processed.md"
-    processed.write_text("正文：关于机器人的文章\n", encoding="utf-8")
-
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    client.has_doc_edit_permission.return_value = None
-    client.prepend_doc_enrichment.side_effect = FeishuAPIError("lark-cli 请求失败")
-
-    result = Enricher(client=client, settings=settings).apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
-    )
-
-    assert result.status == "enriched"
-    assert result.wrote_cloud is False
-    assert doc_already_has_metadata(processed.read_text(encoding="utf-8"))
-
-
-def test_apply_with_permission_also_updates_local(tmp_path: Path):
-    settings = _tmp_settings(tmp_path)
-    work = Path(settings.jobs_dir) / "TokenOne"
-    work.mkdir()
-    processed = work / "processed.md"
-    processed.write_text("正文：关于机器人的文章\n", encoding="utf-8")
-
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-    client.has_doc_edit_permission.return_value = True
-
-    result = Enricher(client=client, settings=settings).apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
-        {**VALID_METADATA, "cover_prompt": "封面提示词"},
-    )
-
-    assert result.status == "enriched"
-    assert result.wrote_cloud is True
-    client.prepend_doc_enrichment.assert_called_once()
-    assert doc_already_has_metadata(processed.read_text(encoding="utf-8"))
 
 
 def test_inspect_rejects_local_existing_metadata(tmp_path: Path):
@@ -572,11 +424,9 @@ def test_inspect_rejects_local_existing_metadata(tmp_path: Path):
     prefix = build_enrichment_markdown(dict(VALID_METADATA))
     (work / "processed.md").write_text(prefix + "\n正文关于机器人\n", encoding="utf-8")
 
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-
-    result = Enricher(client=client, settings=settings).inspect_doc(
-        DocRef(kind="docx", token="TokenOne")
+    result = Enricher(settings=settings).inspect_doc(
+        DocRef(kind="docx", token="TokenOne"),
+        markdown_text="正文：关于机器人的文章",
     )
     assert result.status == "error"
     assert "本地已下载文档" in result.message
@@ -589,13 +439,10 @@ def test_apply_rejects_local_existing_metadata(tmp_path: Path):
     prefix = build_enrichment_markdown(dict(VALID_METADATA))
     (work / "processed.md").write_text(prefix + "\n正文关于机器人\n", encoding="utf-8")
 
-    client = MagicMock()
-    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
-
-    result = Enricher(client=client, settings=settings).apply_metadata(
+    result = Enricher(settings=settings).apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        markdown_text="正文：关于机器人的文章",
     )
     assert result.status == "error"
     assert "本地已下载文档" in result.message
-    client.prepend_doc_enrichment.assert_not_called()

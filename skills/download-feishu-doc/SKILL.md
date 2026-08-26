@@ -1,6 +1,6 @@
 ---
 name: download-feishu-doc
-description: 下载飞书云文档（wiki→docx），拉取 markdown 与 xml，把图片/视频/画板落到 static/ 并改成本地路径。不写 Hugo、不部署。
+description: 把 Agent 用 lark-cli 拉好的飞书文档加工成本地 raw/processed 稿；正文里的媒体 URL 直接下载到 data/jobs/<token>/media/，再复制到 static/。脚本不调用 lark-cli。不写 Hugo、不部署。
 ---
 
 # 下载飞书云文档
@@ -30,11 +30,42 @@ download-feishu-doc/
 
 ```mermaid
 flowchart LR
-  dl[download-feishu-doc] --> cw[convert-website]
-  cw --> cm[compress-media]
-  cm --> loc[deploy-local]
-  loc --> wx[convert-wechat]
+  cli[你执行 lark-cli] --> dl[download-feishu-doc 脚本]
+  dl --> cw[convert-website]
 ```
+
+## 你来执行 lark-cli（脚本不会调）
+
+调用时**不要**加 `--profile` 或 `--as`。把 stdout 里的正文写入工作区文件；若整段是 JSON，也可原样保存（脚本会读 `data.document.content`）。
+
+知识库 wiki 先解析成 docx token：
+
+```bash
+lark-cli drive +inspect --url 'https://xxx.feishu.cn/wiki/TOKEN'
+```
+
+用返回的 `data.token` 作为下面的 `'DOC'`（docx 链接可直接用 URL 或 token）：
+
+```bash
+lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format markdown
+lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format xml --detail full
+```
+
+写入：
+
+- `data/jobs/<token>/raw.md`
+- `data/jobs/<token>/raw.xml`
+
+图片 / 视频：正文和 XML 里如果已是完整 URL，**不要**逐个跑 `media-download`。跑本脚本即可，脚本会 HTTP 下载到 `data/jobs/<token>/media/`，再复制一份到 `site/static/image|video`（官网和公众号要读 static）。
+
+只有没有 URL 的 token（常见是画板）才需要：
+
+```bash
+lark-cli docs +media-download --token 'MEDIA_TOKEN' --output 'data/jobs/<token>/media/MEDIA_TOKEN'
+lark-cli docs +media-download --token 'MEDIA_TOKEN' --output 'data/jobs/<token>/media/MEDIA_TOKEN' --type whiteboard
+```
+
+缺哪个媒体，脚本会打印对应命令；下完再跑一次脚本。
 
 ## 命令
 
@@ -43,23 +74,21 @@ uv run python <本Skill目录>/scripts/run.py --url 'https://xxx.feishu.cn/docx/
 uv run python <本Skill目录>/scripts/run.py --url 'https://xxx.feishu.cn/wiki/TOKEN' --section blog --root /path/to/workspace
 ```
 
-栏目固定 `blog`。
+也可显式传入已保存的文件：`--markdown`、`--xml`、`--media-dir`、`--document-id`。栏目固定 `blog`。
 
 ## 依赖
 
-- 本机 `lark-cli`（已登录 bot 身份）
+- 环境已登录的 `lark-cli`（豆包工作 Agent 已内置）；由**你**在提示词流程里调用，不要让 Python 去 subprocess
 - Python 包见 `scripts/requirements.txt`（`httpx`、`pydantic-settings`）
-- 工作区 `.env` 中的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `LARK_CLI_PROFILE`
-- 禁止从其它目录拷贝生产密钥填入本项目
+- 不需要飞书 App ID / Secret，不要安装或绑定 lark-cli
 
 ## 行为
 
-1. wiki 先解析成 docx。
-2. `docs +fetch` 拉 markdown + xml。
-3. 下载图片、视频、画板缩略图，SHA256 命名写入 `site/static/image|video`。
-4. 正文媒体改成本地路径。
-5. 产物写入 `data/jobs/<token>/`（同一 token 会覆盖上次的 `raw.md` / `processed.md` / `raw.xml`），并更新 `data/last-job.json`。`raw.md` 是下载原文（含 `<title>`）。`processed.md` 由原文加工：开头 `<title>` 转成 markdown 一级标题，媒体改成本地路径。
-6. **不**写 `content/`，**不**跑 Hugo。
-7. 未更换的媒体 token 会复用 `site/static/` 里已有文件；正文和 XML 每次都从云端重新拉取。
+1. 读取 Agent 写好的 markdown / xml。
+2. 正文里的完整媒体 URL 由脚本直接下载到 `data/jobs/<token>/media/`，再 SHA256 命名复制到 `site/static/image|video`。没有 URL 的 token（画板等）才需要你先 `docs +media-download`。
+3. 正文媒体改成本地 `/image/`、`/video/` 路径。
+4. 产物写入 `data/jobs/<token>/`（同一 token 会覆盖上次的 `raw.md` / `processed.md` / `raw.xml`），并更新 `data/last-job.json`。`raw.md` 是下载原文（含 `<title>`）。`processed.md` 由原文加工：开头 `<title>` 转成 markdown 一级标题，媒体改成本地路径。
+5. **不**写 `content/`，**不**跑 Hugo。
+6. 未更换的媒体会复用 `data/jobs/<token>/media/` 与 `site/static/` 里已有文件。
 
-元数据表格不完整时下载仍可成功，但 `convert-website` 会失败。可先 `enrich-doc` 写回云文档；没有编辑权限时请先下载，再 `enrich-doc`（只会写入本地已下载文档）。
+还没有 `raw.md` 时脚本会失败并打印应执行的 lark-cli 命令。元数据表格不完整时加工仍可成功，但 `convert-website` 会失败。可先 `enrich-doc`；写回云文档也由你用 lark-cli 完成。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skill entry: download a Feishu cloud doc and media. Requires lark-cli."""
+"""Skill entry: process a Feishu doc the Agent already fetched with lark-cli."""
 
 from __future__ import annotations
 
@@ -25,17 +25,23 @@ def main(argv: list[str] | None = None) -> int:
     _preparse(argv)
 
     from config import get_settings
-    from feishu.factory import SettingsError, create_feishu_client
+    from last_job import job_dir
     from parser.message import DocRef, extract_doc_refs
     from pipeline.download import download_feishu_doc
 
-    parser = argparse.ArgumentParser(description="下载飞书云文档与媒体")
+    parser = argparse.ArgumentParser(
+        description="把 Agent 用 lark-cli 拉好的飞书文档加工成本地 raw/processed 稿"
+    )
     parser.add_argument("--root", default="")
     parser.add_argument("--env-file", default="")
     parser.add_argument("--url", default="")
     parser.add_argument("--token", default="")
     parser.add_argument("--kind", default="docx", choices=("docx", "wiki"))
     parser.add_argument("--section", default="blog")
+    parser.add_argument("--markdown", default="", help="lark-cli fetch 的 markdown（或 JSON）文件")
+    parser.add_argument("--xml", default="", help="lark-cli fetch 的 xml（或 JSON）文件")
+    parser.add_argument("--media-dir", default="", help="lark-cli media-download 的输出目录")
+    parser.add_argument("--document-id", default="")
     args = parser.parse_args(argv)
     settings = get_settings(args.env_file or None)
 
@@ -62,13 +68,20 @@ def main(argv: list[str] | None = None) -> int:
         print("❌ 请提供 --url 或 --token。")
         return 1
 
-    try:
-        client = create_feishu_client(settings)
-    except SettingsError as exc:
-        print(f"❌ {exc}")
-        return 1
+    work = job_dir(settings, ref.token)
+    markdown_path = Path(args.markdown) if args.markdown else None
+    xml_path = Path(args.xml) if args.xml else None
+    media_dir = Path(args.media_dir) if args.media_dir else (work / "media")
 
-    result = download_feishu_doc(settings, client, ref, section=args.section)
+    result = download_feishu_doc(
+        settings,
+        ref,
+        section=args.section,
+        markdown_path=markdown_path,
+        xml_path=xml_path,
+        media_dir=media_dir,
+        document_id=args.document_id,
+    )
     print(result.message)
     if result.slug:
         print(f"slug={result.slug}")

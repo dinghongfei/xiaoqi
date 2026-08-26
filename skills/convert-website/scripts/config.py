@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     jobs_dir: Path = BOT_ROOT / "data" / "jobs"
 
     lark_cli_bin: str = "lark-cli"
-    lark_cli_identity: str = "bot"
-    lark_cli_profile: str = "xiaoqi"
-    lark_cli_sync_config: bool = True
+    lark_cli_identity: str = ""
+    lark_cli_profile: str = ""
+    lark_cli_sync_config: bool = False
 
     publish_secret_key: str = ""
     publish_timeout: int = 300

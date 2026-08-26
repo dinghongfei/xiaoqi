@@ -1,23 +1,11 @@
-"""Project config: credentials, .env, skill links."""
+"""Project config: .env, skill links. No Feishu app credentials required."""
 
 from pathlib import Path
 
-from bot.initialize import EXIT_MISSING_CREDENTIALS, apply_project_config, upsert_env_file
+from bot.initialize import apply_project_config, upsert_env_file
 
 
-def test_setup_without_credentials_returns_2(tmp_path: Path):
-    (tmp_path / "site").mkdir()
-    (tmp_path / "site" / "hugo.toml").write_text("baseURL = '/'\n", encoding="utf-8")
-    (tmp_path / ".env.example").write_text("FEISHU_APP_ID=\nFEISHU_APP_SECRET=\n", encoding="utf-8")
-    (tmp_path / "skills").mkdir()
-
-    code = apply_project_config(tmp_path)
-
-    assert code == EXIT_MISSING_CREDENTIALS
-    assert not (tmp_path / ".env").exists()
-
-
-def test_setup_writes_env_from_flags(tmp_path: Path):
+def test_setup_without_credentials_writes_env(tmp_path: Path):
     (tmp_path / "site").mkdir()
     (tmp_path / "site" / "hugo.toml").write_text("baseURL = '/'\n", encoding="utf-8")
     (tmp_path / ".env.example").write_text(
@@ -26,17 +14,28 @@ def test_setup_writes_env_from_flags(tmp_path: Path):
     )
     (tmp_path / "skills").mkdir()
 
-    code = apply_project_config(
-        tmp_path,
-        app_id="cli_test",
-        app_secret="secret_test",
-        agents=[],
-    )
+    code = apply_project_config(tmp_path, agents=[])
 
     assert code == 0
     text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "FEISHU_APP_ID=cli_test" in text
-    assert "FEISHU_APP_SECRET=secret_test" in text
+    assert "SITE_BASE_URL=http://127.0.0.1:1314" in text
+    assert "FEISHU_APP_ID=" in text
+
+
+def test_setup_copies_example_without_filling_secrets(tmp_path: Path):
+    (tmp_path / "site").mkdir()
+    (tmp_path / "site" / "hugo.toml").write_text("baseURL = '/'\n", encoding="utf-8")
+    (tmp_path / ".env.example").write_text(
+        "FEISHU_APP_ID=\nFEISHU_APP_SECRET=\nSITE_BASE_URL=http://127.0.0.1:1314\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "skills").mkdir()
+
+    code = apply_project_config(tmp_path, agents=[])
+
+    assert code == 0
+    text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "FEISHU_APP_ID=cli_test" not in text
     assert "SITE_BASE_URL=http://127.0.0.1:1314" in text
 
 

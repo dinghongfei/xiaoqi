@@ -12,4 +12,4 @@
 
 未传 URL 时读工作区 `data/last-job.json` 的 `site_preview` / `wechat_preview`。
 
-凭证：工作区 `.env` 的 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`（机器人身份）。
+无飞书应用凭证时跳过，不要编造密钥。豆包 / IDE 场景不必调用本 Skill。

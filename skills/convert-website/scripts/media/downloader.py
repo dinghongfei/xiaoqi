@@ -5,8 +5,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from feishu.client import FeishuClient
-from media.hasher import save_media
+import httpx
+
+from media.hasher import content_hash, guess_extension, save_media
 from media.compress import MediaCompressor, video_stem
 from media.index import MediaIndex
 from parser.feishu_text import unescape_feishu_text
@@ -45,10 +46,9 @@ WHITEBOARD_TAG_PATTERN = re.compile(
 )
 MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 ATTR_PATTERN = re.compile(r'(\w+)="([^"]*)"')
-FEISHU_MEDIA_URL_PATTERN = re.compile(
-    r"https?://[^/]*feishu\.cn/",
-    re.IGNORECASE,
-)
+HTTP_DOWNLOAD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; xiaoqi-media/1.0)",
+}
 
 
 @dataclass
@@ -62,12 +62,26 @@ def parse_tag_attrs(attr_string: str) -> dict[str, str]:
     return {m.group(1).lower(): m.group(2) for m in ATTR_PATTERN.finditer(attr_string)}
 
 
+def _is_http_url(value: str) -> bool:
+    return value.startswith("http://") or value.startswith("https://")
+
+
 def image_ref_from_attrs(tag_name: str, attrs: dict[str, str]) -> ImageRef | None:
-    token = attrs.get("token") if tag_name in ("image", "video", "source") else attrs.get("src")
-    if not token or token.startswith("http://") or token.startswith("https://"):
+    primary = attrs.get("token") if tag_name in ("image", "video", "source") else attrs.get("src")
+    href = (attrs.get("href") or "").strip()
+    src = (attrs.get("src") or "").strip()
+    # Prefer a complete URL so the script can HTTP-download without lark-cli.
+    for candidate in (href, src, primary or ""):
+        if candidate and _is_http_url(candidate):
+            return ImageRef(
+                token=candidate,
+                alt=attrs.get("alt", ""),
+                caption=attrs.get("caption", ""),
+            )
+    if not primary:
         return None
     return ImageRef(
-        token=token,
+        token=primary,
         alt=attrs.get("alt", ""),
         caption=attrs.get("caption", ""),
     )
@@ -226,16 +240,35 @@ def _is_local_media_path(src: str) -> bool:
     return src.startswith("/image/") or src.startswith("/video/")
 
 
-def _is_feishu_media_url(src: str) -> bool:
-    return bool(FEISHU_MEDIA_URL_PATTERN.search(src))
+class MediaMissingError(Exception):
+    def __init__(self, token: str, media_type: str = "media"):
+        self.token = token
+        self.media_type = media_type
+        super().__init__(token)
+
+
+def file_for_media_token(media_dir: Path, token: str) -> Path | None:
+    """Find a file the Agent saved for this Feishu media token."""
+    if not media_dir.is_dir():
+        return None
+    exact = media_dir / token
+    if exact.is_file():
+        return exact
+    matches = sorted(media_dir.glob(f"{token}.*"))
+    if matches:
+        return matches[0]
+    for path in sorted(media_dir.iterdir()):
+        if path.is_file() and path.stem == token:
+            return path
+    return None
 
 
 @dataclass
 class MediaProcessor:
-    client: FeishuClient
     image_dir: object
     video_dir: object
     media_index: MediaIndex = field(default_factory=MediaIndex)
+    media_dir: Path | None = None
     token_cache: dict[str, str] | None = None
     url_cache: dict[str, str] | None = None
     compressor: MediaCompressor | None = None
@@ -289,18 +322,72 @@ class MediaProcessor:
             return web_path
         return None
 
+    def _ensure_media_dir(self) -> Path | None:
+        if self.media_dir is None:
+            return None
+        path = Path(self.media_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _job_file_for_url(self, url: str) -> Path | None:
+        media_dir = self._ensure_media_dir()
+        if media_dir is None:
+            return None
+        prefix = content_hash(url.encode())
+        matches = sorted(media_dir.glob(f"{prefix}.*"))
+        return matches[0] if matches else None
+
+    def _stash_in_job_dir(self, key: str, data: bytes, content_type: str | None) -> Path | None:
+        media_dir = self._ensure_media_dir()
+        if media_dir is None:
+            return None
+        ext = guess_extension(content_type, data)
+        dest = media_dir / f"{content_hash(key.encode())}{ext}"
+        if not dest.exists():
+            dest.write_bytes(data)
+        return dest
+
+    def _download_url(self, url: str) -> tuple[bytes, str | None]:
+        try:
+            resp = httpx.get(
+                url,
+                timeout=120,
+                follow_redirects=True,
+                headers=HTTP_DOWNLOAD_HEADERS,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise MediaMissingError(url, "url") from exc
+        content_type = (resp.headers.get("content-type") or "").split(";")[0].strip()
+        data = resp.content
+        if not data:
+            raise MediaMissingError(url, "url")
+        if content_type.startswith("text/html"):
+            raise MediaMissingError(url, "url")
+        return data, content_type or None
+
+    def resolve_media(self, ref: str, *, media_type: str = "media") -> str:
+        if _is_http_url(ref):
+            return self.resolve_url(ref)
+        return self.resolve_token(ref, media_type=media_type)
+
     def resolve_token(self, token: str, *, media_type: str = "media") -> str:
+        if _is_http_url(token):
+            return self.resolve_url(token)
         cached = self._lookup_cached_token_path(token, media_type)
         if cached:
             return cached
 
-        data, content_type = self.client.download_media(
-            token,
-            media_type="whiteboard" if media_type == "whiteboard" else "media",
-        )
+        media_dir = self._ensure_media_dir()
+        if media_dir is None:
+            raise MediaMissingError(token, media_type)
+        path = file_for_media_token(media_dir, token)
+        if path is None:
+            raise MediaMissingError(token, media_type)
+        data = path.read_bytes()
         web_path, _ = save_media(
             data,
-            content_type,
+            None,
             self.image_dir,
             self.video_dir,
             compressor=self.compressor,
@@ -315,10 +402,20 @@ class MediaProcessor:
                 return cached
 
         token = self.media_index.lookup_by_url(url)
-        if token:
-            return self.resolve_token(token)
+        if token and not _is_http_url(token):
+            try:
+                return self.resolve_token(token)
+            except MediaMissingError:
+                logger.info("No local file for token=%s, downloading URL", token[:12])
 
-        data, content_type = self.client.download_media_url(url)
+        cached_file = self._job_file_for_url(url)
+        if cached_file is not None:
+            data = cached_file.read_bytes()
+            content_type = None
+        else:
+            data, content_type = self._download_url(url)
+            self._stash_in_job_dir(url, data, content_type)
+
         web_path, _ = save_media(
             data,
             content_type,
@@ -327,6 +424,8 @@ class MediaProcessor:
             compressor=self.compressor,
         )
         self.url_cache[url] = web_path
+        if token and not _is_http_url(token):
+            self._remember_token_path(token, "media", web_path)
         return web_path
 
     def resolve_image_src(self, src: str) -> str | None:
@@ -334,29 +433,25 @@ class MediaProcessor:
         if _is_local_media_path(src):
             return src
 
+        if _is_http_url(src):
+            return self.resolve_url(src)
+
         token = self.media_index.lookup_by_url(src)
-        if not token and not src.startswith("http"):
+        if not token:
             token = self.media_index.lookup_by_relative_path(src)
 
         if token:
-            return self.resolve_token(token)
-
-        if src.startswith("http") and _is_feishu_media_url(src):
-            return self.resolve_url(src)
-
-        if src.startswith("http"):
-            logger.warning("Skipping non-Feishu remote image URL: %s", src[:120])
-            return None
+            return self.resolve_media(token)
 
         logger.warning("Could not resolve local image path without media index: %s", src)
         return None
 
     def _render_image(self, image_ref: ImageRef) -> str:
-        web_path = self.resolve_token(image_ref.token)
+        web_path = self.resolve_media(image_ref.token)
         return format_image_markdown(web_path, image_ref.caption)
 
     def _render_video(self, media_ref: ImageRef) -> str:
-        web_path = self.resolve_token(media_ref.token)
+        web_path = self.resolve_media(media_ref.token)
         return format_video_markdown(web_path, media_ref.caption)
 
     def _render_figure(self, inner_html: str, *, caption: str = "") -> str:
@@ -376,7 +471,7 @@ class MediaProcessor:
         )
 
     def _render_file(self, token: str, *, caption: str = "", name: str = "") -> str:
-        web_path = self.resolve_token(token)
+        web_path = self.resolve_media(token)
         label = caption or name
         if web_path.startswith("/video/"):
             return format_video_markdown(web_path, label)
@@ -399,11 +494,14 @@ class MediaProcessor:
             web_path = src if _is_local_media_path(src) else self.resolve_image_src(src)
             if web_path:
                 skip_until = index
+                alt = unescape_feishu_text(markdown_match.group(1)).strip()
                 caption, skip_until = _caption_from_next_line(
                     lines,
                     index,
                     for_image=True,
                 )
+                if not caption:
+                    caption = alt
                 replacement = format_image_markdown(web_path, caption=caption)
                 new_line = MARKDOWN_IMAGE_PATTERN.sub(replacement, line, count=1)
                 return new_line, skip_until
@@ -568,6 +666,8 @@ class MediaProcessor:
         try:
             web_path = self.resolve_token(token, media_type="whiteboard")
             return format_image_markdown(web_path)
+        except MediaMissingError:
+            raise
         except Exception as exc:
             logger.warning("Failed to download whiteboard token=%s: %s", token, exc)
             return f"\n> ⚠️ 画板内容需手动处理 (token: {token})\n"
@@ -585,7 +685,7 @@ class MediaProcessor:
             tag_name = "img" if pattern is IMG_TAG_PATTERN else "image"
             image_ref = image_ref_from_attrs(tag_name, attrs)
             if image_ref:
-                return self.resolve_token(image_ref.token)
+                return self.resolve_media(image_ref.token)
         return None
 
     def resolve_featured_image(self, metadata_region: str, body: str) -> str | None:

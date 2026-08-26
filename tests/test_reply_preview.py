@@ -13,10 +13,10 @@ def test_reply_preview_requires_message_id():
     assert "message-id" in result.message
 
 
-def test_reply_preview_requires_credentials():
+def test_reply_preview_skips_without_credentials():
     result = reply_preview(Settings(feishu_app_id="", feishu_app_secret=""), "om_1")
-    assert not result.ok
-    assert "FEISHU_APP_ID" in result.message
+    assert result.ok
+    assert "跳过" in result.message
 
 
 def test_reply_preview_reads_last_job_urls(tmp_path: Path):

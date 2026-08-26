@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skill entry: inspect a Feishu doc, then write Agent-generated metadata back."""
+"""Skill entry: inspect a local Feishu markdown draft, then write Agent-generated metadata."""
 
 from __future__ import annotations
 
@@ -27,6 +27,8 @@ def _add_doc_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--url", default="")
     parser.add_argument("--token", default="")
     parser.add_argument("--kind", default="docx", choices=("docx", "wiki"))
+    parser.add_argument("--markdown", default="", help="lark-cli fetch 的 markdown（或 JSON）文件")
+    parser.add_argument("--document-id", default="")
 
 
 def _resolve_ref(args: argparse.Namespace):
@@ -41,6 +43,17 @@ def _resolve_ref(args: argparse.Namespace):
         return ref
     if args.token:
         return DocRef(kind=args.kind, token=args.token, url="")
+    from last_job import load_last_job
+    from config import get_settings
+
+    settings = get_settings(args.env_file or None)
+    job = load_last_job(settings) or {}
+    if job.get("token"):
+        return DocRef(
+            kind=str(job.get("kind") or "docx"),
+            token=str(job["token"]),
+            url=str(job.get("doc_url") or ""),
+        )
     print("❌ 请提供 --url 或 --token。")
     return None
 
@@ -70,19 +83,20 @@ def main(argv: list[str] | None = None) -> int:
     _preparse(argv)
 
     from config import get_settings
-    from feishu.factory import SettingsError, create_feishu_client
+    from feishu.client import find_enrichment_block_ids
+    from feishu.payload import document_from_fetch
     from parser.metadata import MetadataError
     from pipeline.enricher import Enricher
 
     parser = argparse.ArgumentParser(
-        description="拉取飞书正文线索，或把 Agent 生成的元数据写入云文档 / 本地已下载文档"
+        description="读取 Agent 用 lark-cli 拉好的正文，校验并生成本地元数据 / 写回 XML"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    inspect_parser = sub.add_parser("inspect", help="拉取正文线索，不写回")
+    inspect_parser = sub.add_parser("inspect", help="读取正文线索，不写回")
     _add_doc_args(inspect_parser)
 
-    apply_parser = sub.add_parser("apply", help="把已生成的元数据写回飞书或本地已下载文档")
+    apply_parser = sub.add_parser("apply", help="把已生成的元数据写入本地 processed.md 与 enrich.xml")
     _add_doc_args(apply_parser)
     apply_parser.add_argument("--slug", default="")
     apply_parser.add_argument("--lang", default="")
@@ -95,21 +109,42 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser.add_argument("--json", dest="metadata_json", default="")
     apply_parser.add_argument("--json-file", default="")
 
+    ids_parser = sub.add_parser(
+        "enrichment-ids",
+        help="从 docs +fetch --detail with-ids 的 XML 中取出属性区块 id",
+    )
+    ids_parser.add_argument("--xml", required=True)
+    ids_parser.add_argument("--root", default="")
+    ids_parser.add_argument("--env-file", default="")
+
     args = parser.parse_args(argv)
+
+    if args.command == "enrichment-ids":
+        xml_path = Path(args.xml)
+        if not xml_path.is_file():
+            print(f"❌ 找不到 XML：{xml_path}")
+            return 1
+        xml, _document_id = document_from_fetch(xml_path.read_text(encoding="utf-8"))
+        ids = find_enrichment_block_ids(xml)
+        if not ids:
+            print("❌ 未找到「属性」区块，请确认 XML 已包含刚 append 的内容。")
+            return 1
+        print(",".join(ids))
+        return 0
+
     settings = get_settings(args.env_file or None)
     ref = _resolve_ref(args)
     if ref is None:
         return 1
 
-    try:
-        client = create_feishu_client(settings)
-    except SettingsError as exc:
-        print(f"❌ {exc}")
-        return 1
-
-    enricher = Enricher(client=client, settings=settings)
+    markdown_path = Path(args.markdown) if args.markdown else None
+    enricher = Enricher(settings=settings)
     if args.command == "inspect":
-        result = enricher.inspect_doc(ref)
+        result = enricher.inspect_doc(
+            ref,
+            markdown_path=markdown_path,
+            document_id=args.document_id,
+        )
         if result.status != "ready":
             print(result.message or "inspect 失败。")
             return 1
@@ -122,7 +157,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"❌ {exc}")
         return 1
 
-    result = enricher.apply_metadata(ref, payload)
+    result = enricher.apply_metadata(
+        ref,
+        payload,
+        markdown_path=markdown_path,
+        document_id=args.document_id,
+    )
     print(result.message or "补全完成。")
     if result.doc_url:
         print(result.doc_url)

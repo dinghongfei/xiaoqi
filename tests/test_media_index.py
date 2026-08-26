@@ -26,6 +26,13 @@ def test_build_media_index_from_xml():
     assert index.by_url["https://example.feishu.cn/file?code=f1"] == "FileToken"
 
 
+def test_build_media_index_registers_http_src():
+    xml = '<img src="https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=abc"/>'
+    index = build_media_index_from_xml(xml)
+    url = "https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=abc"
+    assert index.lookup_by_url(url) == url
+
+
 def test_lookup_by_relative_path_prefix():
     index = MediaIndex(by_prefix={"IjpLbMxl": "IjpLbMxljoZvRQxZrEucXAhGnrf"})
     assert (

@@ -1,13 +1,13 @@
 ---
 name: reply-preview
-description: 用飞书 OpenAPI 回复预览卡片（官网/公众号按钮）。仅当编排来自飞书、已有 message_id 时调用；IDE 里直接预览不必发。
+description: 遗留 Skill：用飞书 OpenAPI 回复预览卡片。豆包 / IDE 场景不要调用；无 App 凭证时会跳过。
 ---
 
 # 回复预览卡片
 
 用户能听懂的名字：**把预览发回飞书 / 回卡片**。
 
-本目录是完整 Skill，拷到其他 Agent 的 skills 下即可用，**不要**依赖宿主项目的 CLI 包。飞书机器人只负责秒回「收到」；**结果卡片由本 Skill 发出**，是编排的最后一步。
+本目录是完整 Skill，拷到其他 Agent 的 skills 下即可用，**不要**依赖宿主项目的 CLI 包。
 
 ```
 reply-preview/
@@ -23,18 +23,9 @@ reply-preview/
 
 ## 何时调用
 
-提示或上下文里有飞书 `message_id`（`om_` 开头）时：**成功或失败都要调**，作为流水线最后一步。
+豆包工作 Agent 与 IDE 预览**不要**调用本 Skill：直接在对话里回复 `官网预览=` / `公众号预览=`。
 
-```mermaid
-flowchart LR
-  loc[deploy-local] --> rp[reply-preview]
-  wx[convert-wechat] --> rp
-  cloud[deploy-cloud] --> rp
-```
-
-在 IDE / 终端里自己预览、没有 `message_id` 时**不要**调用。
-
-不要用通用 `lark-im` 代替本 Skill：这里必须用工作区 `.env` 里机器人的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 回那条消息。
+无 `.env` 飞书应用凭证时脚本会跳过（成功退出），不要为此去创建应用或编造密钥。
 
 ## 命令
 
@@ -49,6 +40,6 @@ uv run python <本Skill目录>/scripts/run.py --message-id 'om_xxx' --root /path
 
 ## 行为
 
-- 发交互卡片：有 URL 则带「官网预览」「公众号预览」按钮。
-- 卡片接口失败则回纯文本，避免用户只看到「收到」。
-- 需要 `.env` 中的 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`。禁止编造凭证。
+- 未配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`：跳过，不报错。
+- 有凭证时发交互卡片：有 URL 则带「官网预览」「公众号预览」按钮。
+- 卡片接口失败则回纯文本。

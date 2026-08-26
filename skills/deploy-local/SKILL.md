@@ -40,7 +40,7 @@ uv run python <本Skill目录>/scripts/run.py --root /path/to/workspace
 
 ## 依赖
 
-本机 `hugo`（Extended）。Python 包见 `scripts/requirements.txt`。
+本机 `hugo`（Extended）。不在 PATH 时用 `$HOME/.local/bin/hugo`，不要让用户改 PATH。Python 包见 `scripts/requirements.txt`。
 
 ## 行为
 

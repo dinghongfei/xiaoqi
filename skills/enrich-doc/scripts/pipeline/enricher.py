@@ -10,12 +10,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from feishu.client import (
-    FeishuClient,
-    is_edit_permission_error,
-    value_for_metadata_table,
-)
-from last_job import abs_from_job, load_last_job, relpath, update_last_job
+from feishu import lark_cmds
+from feishu.client import build_enrichment_xml, value_for_metadata_table
+from feishu.payload import document_from_fetch
+from last_job import abs_from_job, job_dir, load_last_job, relpath, update_last_job
 from media.downloader import (
     IMAGE_TAG_PATTERN,
     IMG_TAG_PATTERN,
@@ -102,6 +100,8 @@ class EnrichResult:
     doc_url: str = ""
     wrote_cloud: bool = False
     local_paths: list[str] = field(default_factory=list)
+    enrichment_xml: str = ""
+    enrich_xml_path: str = ""
 
 
 def default_date_cst() -> str:
@@ -325,24 +325,96 @@ def local_doc_already_has_metadata(
 
 
 class Enricher:
-    def __init__(self, client: FeishuClient, settings: Settings | None = None):
-        self.client = client
+    def __init__(self, settings: Settings | None = None):
         self.settings = settings
 
-    def _probe_can_edit(self, doc_ref: DocRef, document_id: str = "") -> bool | None:
-        probe = getattr(self.client, "has_doc_edit_permission", None)
-        if not callable(probe):
-            return None
-        try:
-            result = probe(doc_ref, document_id=document_id)
-        except TypeError:
-            try:
-                result = probe(doc_ref)
-            except Exception:
+    def _missing_markdown_message(self, doc_ref: DocRef) -> str:
+        doc = (doc_ref.url or "").strip() or doc_ref.token
+        wiki_line = ""
+        if doc_ref.kind == "wiki":
+            wiki_url = doc or f"https://open.feishu.cn/wiki/{doc_ref.token}"
+            wiki_line = (
+                f"知识库请先：{lark_cmds.inspect_wiki(wiki_url)}\n"
+                "用返回的 data.token 作为 docx token，再 fetch。\n"
+            )
+        dest = ""
+        if self.settings is not None:
+            dest = relpath(
+                Path(self.settings.jobs_dir) / _safe_job_token(doc_ref.token) / "raw.md"
+            )
+        dest_line = f"把 data.document.content 写入 {dest}\n" if dest else ""
+        return (
+            f"❌ 还没有正文稿。{lark_cmds.AUTH_HINT}\n"
+            f"{wiki_line}"
+            f"请先执行：{lark_cmds.fetch_markdown(doc)}\n"
+            f"{dest_line}"
+            "或给 inspect/apply 传入 --markdown。"
+        )
+
+    def _load_markdown(
+        self,
+        doc_ref: DocRef,
+        *,
+        markdown_path: Path | None = None,
+        markdown_text: str | None = None,
+        document_id: str = "",
+    ) -> tuple[str, str] | None:
+        if markdown_text is not None:
+            content, fetched_id = document_from_fetch(markdown_text)
+            return content, (document_id or fetched_id)
+        if markdown_path is not None:
+            if not markdown_path.is_file():
                 return None
-        except Exception:
+            content, fetched_id = document_from_fetch(
+                markdown_path.read_text(encoding="utf-8")
+            )
+            return content, (document_id or fetched_id)
+        located = find_local_markdown_files(
+            self.settings, doc_ref, document_id=document_id, include_raw=True
+        )
+        raw_files = [p for p in located if p.name == "raw.md"]
+        processed_files = [p for p in located if p.name == "processed.md"]
+        chosen = raw_files + processed_files + located
+        if not chosen:
             return None
-        return result if isinstance(result, bool) else None
+        content, fetched_id = document_from_fetch(chosen[0].read_text(encoding="utf-8"))
+        return content, (document_id or fetched_id)
+
+    def _write_enrich_xml(self, doc_ref: DocRef, xml: str) -> Path | None:
+        if self.settings is None:
+            return None
+        work = job_dir(self.settings, doc_ref.token)
+        path = work / "enrich.xml"
+        path.write_text(xml, encoding="utf-8")
+        return path
+
+    def _writeback_message(
+        self,
+        doc_ref: DocRef,
+        *,
+        xml_path: Path | None,
+        document_id: str,
+        local_labels: list[str],
+    ) -> str:
+        doc = (doc_ref.url or "").strip() or document_id or doc_ref.token
+        page_id = document_id or "<page_id>"
+        xml_arg = relpath(xml_path) if xml_path is not None else "data/jobs/<token>/enrich.xml"
+        after_xml = (
+            relpath(xml_path.with_name("after.xml"))
+            if xml_path is not None
+            else "data/jobs/<token>/after.xml"
+        )
+        parts = [
+            "补全完成（已写入本地"
+            + (f" {', '.join(local_labels)}" if local_labels else "稿")
+            + "）。写回飞书请由 Agent 执行 lark-cli，不要加 --profile 或 --as：",
+            lark_cmds.docs_append_xml(doc, xml_arg),
+            lark_cmds.fetch_xml_with_ids(doc),
+            f"把 with-ids XML 写入 {after_xml} 后执行：",
+            f"uv run python skills/enrich-doc/scripts/run.py enrichment-ids --xml '{after_xml}'",
+            lark_cmds.docs_move_blocks(page_id, "<block_ids>"),
+        ]
+        return "\n".join(parts)
 
     def _write_local_enrichment(
         self,
@@ -352,39 +424,48 @@ class Enricher:
         metadata: dict,
         cover_prompt: str,
         include_image_heading: bool,
+        source_markdown: str = "",
     ) -> list[Path]:
         located = find_local_markdown_files(
             self.settings, doc_ref, document_id=document_id
         )
-        raw_title = ""
+        raw_title = extract_feishu_doc_title(source_markdown)
         for path in located:
             if path.name != "raw.md":
                 continue
             try:
-                raw_title = extract_feishu_doc_title(path.read_text(encoding="utf-8"))
+                raw_title = extract_feishu_doc_title(path.read_text(encoding="utf-8")) or raw_title
             except OSError:
-                raw_title = ""
+                pass
             break
-        paths = [path for path in located if path.name == "processed.md"]
-        if not paths:
-            return []
         prefix = build_enrichment_markdown(
             metadata,
             cover_prompt=cover_prompt or None,
             include_image_heading=include_image_heading,
         )
-        written: list[Path] = []
-        for path in paths:
-            existing = path.read_text(encoding="utf-8")
-            if doc_already_has_metadata(existing):
-                continue
-            updated = prepend_enrichment_markdown(
-                existing, prefix, doc_title=raw_title
+        paths = [path for path in located if path.name == "processed.md"]
+        if not paths and self.settings is not None and source_markdown.strip():
+            dest = job_dir(self.settings, doc_ref.token) / "processed.md"
+            dest.write_text(
+                prepend_enrichment_markdown(
+                    source_markdown, prefix, doc_title=raw_title
+                ),
+                encoding="utf-8",
             )
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text(updated, encoding="utf-8")
-            tmp.replace(path)
-            written.append(path)
+            written = [dest]
+        else:
+            written = []
+            for path in paths:
+                existing = path.read_text(encoding="utf-8")
+                if doc_already_has_metadata(existing):
+                    continue
+                updated = prepend_enrichment_markdown(
+                    existing, prefix, doc_title=raw_title
+                )
+                tmp = path.with_name(path.name + ".tmp")
+                tmp.write_text(updated, encoding="utf-8")
+                tmp.replace(path)
+                written.append(path)
         if written and self.settings is not None:
             job = load_last_job(self.settings)
             if job and _job_matches(job, doc_ref, document_id):
@@ -405,19 +486,30 @@ class Enricher:
                 labels.append(str(path))
         return labels
 
-    def inspect_doc(self, doc_ref: DocRef) -> InspectResult:
+    def inspect_doc(
+        self,
+        doc_ref: DocRef,
+        *,
+        markdown_path: Path | None = None,
+        markdown_text: str | None = None,
+        document_id: str = "",
+    ) -> InspectResult:
         label = doc_ref.label
         doc_url = (doc_ref.url or "").strip()
 
-        try:
-            raw, document_id = self.client.fetch_doc_markdown(doc_ref)
-        except Exception as e:
-            logger.exception("Enrich inspect fetch failed [%s]: %s", label, e)
+        loaded = self._load_markdown(
+            doc_ref,
+            markdown_path=markdown_path,
+            markdown_text=markdown_text,
+            document_id=document_id,
+        )
+        if loaded is None:
             return InspectResult(
                 status="error",
-                message=f"❌ [{label}] 拉取文档失败：{e}",
+                message=self._missing_markdown_message(doc_ref),
                 doc_url=doc_url,
             )
+        raw, document_id = loaded
 
         if doc_already_has_metadata(raw):
             return InspectResult(
@@ -452,7 +544,7 @@ class Enricher:
             has_image_heading=doc_has_image_heading(raw),
             default_date=default_date_cst(),
             default_author=DEFAULT_AUTHOR,
-            can_edit=self._probe_can_edit(doc_ref, document_id),
+            can_edit=None,
         )
 
     def apply_metadata(
@@ -461,21 +553,28 @@ class Enricher:
         data: dict,
         *,
         cover_prompt: str = "",
+        markdown_path: Path | None = None,
+        markdown_text: str | None = None,
+        document_id: str = "",
     ) -> EnrichResult:
         label = doc_ref.label
         doc_url = (doc_ref.url or "").strip()
 
-        try:
-            raw, document_id = self.client.fetch_doc_markdown(doc_ref)
-        except Exception as e:
-            logger.exception("Enrich apply fetch failed [%s]: %s", label, e)
+        loaded = self._load_markdown(
+            doc_ref,
+            markdown_path=markdown_path,
+            markdown_text=markdown_text,
+            document_id=document_id,
+        )
+        if loaded is None:
             return EnrichResult(
                 slug="",
                 lang="",
                 status="error",
-                message=f"❌ [{label}] 拉取文档失败：{e}",
+                message=self._missing_markdown_message(doc_ref),
                 doc_url=doc_url,
             )
+        raw, document_id = loaded
 
         if doc_already_has_metadata(raw):
             return EnrichResult(
@@ -535,103 +634,69 @@ class Enricher:
             )
 
         include_image_heading = bool(prompt) and not has_image_heading
-        can_edit = self._probe_can_edit(doc_ref, document_id)
-        wrote_cloud = False
-        if can_edit is not False:
-            try:
-                self.client.prepend_doc_enrichment(
-                    doc_ref,
-                    metadata=metadata,
-                    cover_prompt=prompt or None,
-                    document_id=document_id,
-                    include_image_heading=include_image_heading,
-                )
-                wrote_cloud = True
-            except Exception as e:
-                if is_edit_permission_error(e) or can_edit is None:
-                    logger.info("Enrich skip cloud write [%s]: %s", label, e)
-                    can_edit = False
-                else:
-                    logger.exception("Enrich write-back failed [%s]: %s", label, e)
-                    return EnrichResult(
-                        slug=metadata.get("slug", ""),
-                        lang=metadata.get("lang", ""),
-                        status="error",
-                        message=f"❌ [{label}] 写回飞书文档失败：{e}",
-                        metadata=metadata,
-                        cover_prompt=prompt,
-                        doc_url=doc_url,
-                    )
+        xml = build_enrichment_xml(
+            metadata,
+            cover_prompt=prompt or None,
+            include_image_heading=include_image_heading,
+        )
+        xml_path = self._write_enrich_xml(doc_ref, xml)
 
-        written_local: list[Path] = []
-        if not wrote_cloud or find_local_markdown_files(
-            self.settings, doc_ref, document_id=document_id
-        ):
-            try:
-                written_local = self._write_local_enrichment(
-                    doc_ref,
-                    document_id=document_id,
-                    metadata=metadata,
-                    cover_prompt=prompt,
-                    include_image_heading=include_image_heading,
-                )
-            except Exception as e:
-                logger.exception("Enrich local write failed [%s]: %s", label, e)
-                if not wrote_cloud:
-                    return EnrichResult(
-                        slug=metadata.get("slug", ""),
-                        lang=metadata.get("lang", ""),
-                        status="error",
-                        message=f"❌ [{label}] 写入本地已下载文档失败：{e}",
-                        metadata=metadata,
-                        cover_prompt=prompt,
-                        doc_url=doc_url,
-                    )
-
-        local_labels = self._local_path_labels(written_local)
-        if wrote_cloud:
-            message = (
-                f"补全完成（已写回飞书云文档，并更新本地已下载文档 {', '.join(local_labels)}）。"
-                if local_labels
-                else ""
+        try:
+            written_local = self._write_local_enrichment(
+                doc_ref,
+                document_id=document_id,
+                metadata=metadata,
+                cover_prompt=prompt,
+                include_image_heading=include_image_heading,
+                source_markdown=raw,
             )
+        except Exception as e:
+            logger.exception("Enrich local write failed [%s]: %s", label, e)
             return EnrichResult(
                 slug=metadata.get("slug", ""),
                 lang=metadata.get("lang", ""),
-                status="enriched",
-                message=message,
+                status="error",
+                message=f"❌ [{label}] 写入本地已下载文档失败：{e}",
                 metadata=metadata,
                 cover_prompt=prompt,
                 doc_url=doc_url,
-                wrote_cloud=True,
-                local_paths=local_labels,
+                enrichment_xml=xml,
+                enrich_xml_path=relpath(xml_path) if xml_path else "",
             )
 
-        if local_labels:
+        local_labels = self._local_path_labels(written_local)
+        if xml_path is not None:
+            local_labels = [*local_labels, relpath(xml_path)]
+        if not local_labels and not xml:
             return EnrichResult(
                 slug=metadata.get("slug", ""),
                 lang=metadata.get("lang", ""),
-                status="enriched",
+                status="error",
                 message=(
-                    f"补全完成（无云文档编辑权限，已写入本地已下载文档 "
-                    f"{', '.join(local_labels)}）。"
+                    f"❌ [{label}] 本地没有已下载文档可写入。"
+                    "请先运行 download-feishu-doc，再补全元数据。"
                 ),
                 metadata=metadata,
                 cover_prompt=prompt,
                 doc_url=doc_url,
-                wrote_cloud=False,
-                local_paths=local_labels,
+                enrichment_xml=xml,
             )
 
         return EnrichResult(
             slug=metadata.get("slug", ""),
             lang=metadata.get("lang", ""),
-            status="error",
-            message=(
-                f"❌ [{label}] 机器人没有该文档的编辑权限，本地也没有已下载文档可写入。"
-                "请先运行 download-feishu-doc，再补全元数据。"
+            status="enriched",
+            message=self._writeback_message(
+                doc_ref,
+                xml_path=xml_path,
+                document_id=document_id,
+                local_labels=local_labels,
             ),
             metadata=metadata,
             cover_prompt=prompt,
             doc_url=doc_url,
+            wrote_cloud=False,
+            local_paths=local_labels,
+            enrichment_xml=xml,
+            enrich_xml_path=relpath(xml_path) if xml_path else "",
         )

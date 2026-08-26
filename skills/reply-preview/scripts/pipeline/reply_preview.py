@@ -38,7 +38,7 @@ def reply_preview(
     app_id = (settings.feishu_app_id or "").strip()
     app_secret = (settings.feishu_app_secret or "").strip()
     if not app_id or not app_secret:
-        return StepResult(status="error", message="请设置 FEISHU_APP_ID 和 FEISHU_APP_SECRET")
+        return StepResult(status="ok", message="未配置飞书应用凭证，跳过回复预览卡片。")
 
     site = (site_preview or "").strip()
     wechat = (wechat_preview or "").strip()

@@ -15,12 +15,10 @@ DATA_DIR="$PROJECT_ROOT/data/run"
 LOG_DIR="$PROJECT_ROOT/data/logs"
 mkdir -p "$DATA_DIR" "$LOG_DIR" "$PROJECT_ROOT/preview"
 
-BOT_PID="$DATA_DIR/bot.pid"
 HTTP_PID="$DATA_DIR/preview.pid"
-BOT_LOG="$LOG_DIR/bot.log"
 HTTP_LOG="$LOG_DIR/preview-http.log"
 
-# 从当前进程组拆出去，避免助手执行完命令后把预览/飞书进程一起杀掉。
+# 从当前进程组拆出去，避免助手执行完命令后把预览进程一起杀掉。
 _detach() {
   local pidfile="$1" logfile="$2"
   shift 2
@@ -57,14 +55,13 @@ PY
 }
 
 if [[ ! -f "$PROJECT_ROOT/.env" ]]; then
-  echo "缺少 .env。请对助手说「安装环境」，把飞书 App ID 和 Secret 发给它。"
+  echo "缺少 .env。请对助手说「安装环境」。"
   exit 1
 fi
 
 stop_project_services
 
 _detach "$HTTP_PID" "$HTTP_LOG" "$UV" run bot preview-http
-_detach "$BOT_PID" "$BOT_LOG" "$UV" run bot serve
 
 ok=0
 for _ in $(seq 1 40); do
@@ -80,5 +77,4 @@ if [[ "$ok" -ne 1 ]]; then
 fi
 
 echo "已启动"
-echo "  飞书进程 pid=$(cat "$BOT_PID")  日志 $BOT_LOG"
 echo "  预览 HTTP pid=$(cat "$HTTP_PID")  http://127.0.0.1:${PREVIEW_PORT}/  日志 $HTTP_LOG"

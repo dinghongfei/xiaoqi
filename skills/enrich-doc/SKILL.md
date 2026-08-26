@@ -1,6 +1,6 @@
 ---
 name: enrich-doc
-description: 拉取飞书正文线索，由当前 Agent 生成属性表和封面提示词。有编辑权限则写回云文档顶部，没有则只写入本地已下载文档。脚本不调用 LLM。不写 Hugo、不部署。
+description: 读取已拉取的飞书正文线索，由当前 Agent 生成属性表和封面提示词，写入本地 processed.md 与 enrich.xml。写回云文档由 Agent 用 lark-cli 完成。脚本不调用 LLM、不调用 lark-cli。不写 Hugo、不部署。
 ---
 
 # 补全元数据
@@ -25,7 +25,40 @@ enrich-doc/
 
 用户说「补全」「enrich」并给出文档链接。不要顺带转换或部署。
 
-编排方已经是带模型的 Agent：**不要**再配 `LLM_*`，**不要** curl OpenAI / 其它补全接口。脚本只负责读文档、校验字段，并按权限写回飞书或写入本地已下载文档。
+编排方已经是带模型的 Agent：**不要**再配 `LLM_*`，**不要** curl OpenAI / 其它补全接口。脚本只负责读本地稿、校验字段、写本地文件。
+
+## 你来执行 lark-cli（脚本不会调）
+
+调用时**不要**加 `--profile` 或 `--as`。
+
+inspect 之前若还没有 `data/jobs/<token>/raw.md`，先 fetch markdown：
+
+```bash
+lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format markdown
+```
+
+知识库 wiki 先：`lark-cli drive +inspect --url '…'`，用返回的 `data.token` 作为 docx token。
+
+apply 之后脚本会写出 `data/jobs/<token>/enrich.xml`。若用户要写回云文档，你再执行：
+
+```bash
+lark-cli docs +update --doc 'DOC' --command append --doc-format xml --content "$(cat 'data/jobs/<token>/enrich.xml')"
+lark-cli docs +fetch --api-version v2 --doc 'DOC' --doc-format xml --detail with-ids
+```
+
+把 with-ids XML 存成 `data/jobs/<token>/after.xml`，取出属性区块 id：
+
+```bash
+uv run python <本Skill目录>/scripts/run.py enrichment-ids --xml 'data/jobs/<token>/after.xml'
+```
+
+再用返回的 id 列表（逗号分隔）移到文档顶部（`--block-id` 用 `document_id` / page id）：
+
+```bash
+lark-cli docs +update --doc 'PAGE_ID' --command block_move_after --block-id 'PAGE_ID' --src-block-ids 'id1,id2,…'
+```
+
+写回若报没有编辑权限，只保留本地 `processed.md`，不要假装已写回云文档。
 
 ## 命令
 
@@ -33,13 +66,10 @@ enrich-doc/
 
 ```mermaid
 flowchart LR
-  inspect[enrich-doc inspect] --> gen[Agent 生成字段]
+  fetch[你 lark-cli fetch] --> inspect[enrich-doc inspect]
+  inspect --> gen[Agent 生成字段]
   gen --> apply[enrich-doc apply]
-  apply --> perm{有编辑权限?}
-  perm -->|是| cloud[回写云文档]
-  perm -->|否| local[只写本地已下载文档]
-  cloud --> rp[reply-preview]
-  local --> rp
+  apply --> write[你 lark-cli 写回云文档]
 ```
 
 ```bash
@@ -50,20 +80,19 @@ uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn
   --cover-prompt '封面提示词'
 ```
 
-`inspect` 成功时标准输出是 JSON（含 `article_text`、`doc_title`、`need_cover_prompt`、`default_date`、`can_edit` 等）。失败则打印中文原因并退出码 1，此时不要 apply。`can_edit` 为 `true` / `false` / `null`（探测不到时为 `null`）。为 `false` 且还没下载时，先跑 `download-feishu-doc` 再 apply。
+`inspect` 成功时标准输出是 JSON（含 `article_text`、`doc_title`、`need_cover_prompt`、`default_date` 等）。失败则打印中文原因并退出码 1，此时不要 apply。`can_edit` 恒为 `null`（是否可写回由你执行 lark-cli 时看结果）。没有本地稿时先 fetch 或先跑 `download-feishu-doc`。
 
-也可用 `--json '{...}'` 或 `--json-file path.json` 把字段一次传给 apply。
+也可用 `--json '{...}'` 或 `--json-file path.json` 把字段一次传给 apply。可用 `--markdown` 指向已保存的 fetch 结果。
 
 ## 依赖
 
-- 本机 `lark-cli`
+- 环境已登录的 `lark-cli`（豆包工作 Agent 已内置）；由**你**调用，不要让 Python 去 subprocess
 - `scripts/requirements.txt`（`httpx`、`pydantic-settings`）
-- 工作区 `.env` 中的 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `LARK_CLI_PROFILE`
-- 有编辑权限时回写云文档；没有则只写入本地已下载的 `processed.md`（不改 `raw.md`）。无权限且尚未下载时 apply 会失败，需先 `download-feishu-doc`
+- 不需要飞书 App ID / Secret
 
 ## 你来生成字段
 
-读完 inspect 的 JSON 后，**你自己**根据正文生成下面字段，再交给 apply。只输出将写入文档的值，不要编造飞书 API 调用。
+读完 inspect 的 JSON 后，**你自己**根据正文生成下面字段，再交给 apply。只输出将写入文档的值。
 
 必填：`slug`、`lang`、`title`、`date`、`author`、`categories`、`summary`。
 
@@ -80,10 +109,8 @@ uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn
 
 ## 行为
 
-- `inspect`：拉文档；云文档或本地已下载文档已有可解析属性表则拒绝；几乎没有文字则拒绝。JSON 里带 `can_edit`。
-- `apply`：再次拉文档做同样检查，校验字段后：
-  - **有编辑权限**：写回云文档顶部（属性标题 + 三列表格 + 可选图片提示词）；若本地已下载则同步写入 `processed.md`，不改 `raw.md`。
-  - **没有编辑权限**：不回写云文档，只把属性表写入本地 `processed.md`。`processed.md` 结构为：第一行是由 `raw.md` 开头 `<title>` 转成的 markdown 一级标题，下面是属性/图片，再然后是文章正文。`raw.md` 保持下载原文。
-  - **没有编辑权限且尚未下载**：失败，提示先 `download-feishu-doc`。
+- `inspect`：读本地稿（或 `--markdown`）；云文档对应的本地稿已有可解析属性表则拒绝；几乎没有文字则拒绝。
+- `apply`：同样检查后校验字段，写入本地 `processed.md`（不改 `raw.md`）和 `data/jobs/<token>/enrich.xml`。`processed.md` 结构为：第一行是由 `raw.md` 开头 `<title>` 转成的 markdown 一级标题，下面是属性/图片，再然后是文章正文。
+- 脚本**不**写回飞书；写回步骤见上文 lark-cli。
 - 正文插图不算封面：仅当「图片」区已有图时才跳过封面提示词。
 - 不写 Hugo、不压缩、不部署。

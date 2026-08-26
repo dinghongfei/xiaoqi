@@ -51,6 +51,8 @@ def test_scripts_stop_before_restart():
     assert "stop_project_services" in stop
     assert "bot preview-http" in helper
     assert "bot serve" in helper
+    assert "bot serve" not in start
+    assert "bot preview-http" in start
     assert "lsof" in helper
     assert "_pids_on_port" in helper
     assert "_pids_by_name" in helper

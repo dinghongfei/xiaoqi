@@ -18,6 +18,10 @@ WHITEBOARD_TAG_PATTERN = re.compile(
 )
 
 
+def _is_http(value: str) -> bool:
+    return value.startswith("http://") or value.startswith("https://")
+
+
 @dataclass
 class MediaIndex:
     by_url: dict[str, str] = field(default_factory=dict)
@@ -45,8 +49,26 @@ class MediaIndex:
 def _register_token(index: MediaIndex, token: str, href: str | None = None) -> None:
     if href:
         index.by_url[href] = token
+    if _is_http(token):
+        index.by_url[token] = token
+        return
     index.by_prefix[token] = token
     index.by_prefix[token[:8]] = token
+
+
+def _register_attrs(index: MediaIndex, attrs: str, *, token: str | None = None) -> None:
+    href_match = HREF_ATTR_PATTERN.search(attrs)
+    href = href_match.group(1) if href_match else None
+    src_match = SRC_ATTR_PATTERN.search(attrs)
+    src = src_match.group(1) if src_match else None
+    if token and not _is_http(token):
+        _register_token(index, token, href or (src if src and _is_http(src) else None))
+        if src and _is_http(src):
+            index.by_url[src] = token
+        return
+    for url in (href, src, token):
+        if url and _is_http(url):
+            _register_token(index, url, url)
 
 
 def build_media_index_from_xml(xml: str) -> MediaIndex:
@@ -55,14 +77,13 @@ def build_media_index_from_xml(xml: str) -> MediaIndex:
     for match in IMG_TAG_PATTERN.finditer(xml):
         attrs = match.group(1)
         src_match = SRC_ATTR_PATTERN.search(attrs)
-        if not src_match:
+        token_match = TOKEN_ATTR_PATTERN.search(attrs)
+        token = (token_match.group(1) if token_match else None) or (
+            src_match.group(1) if src_match else None
+        )
+        if not token:
             continue
-        token = src_match.group(1)
-        if token.startswith("http"):
-            continue
-        href_match = HREF_ATTR_PATTERN.search(attrs)
-        href = href_match.group(1) if href_match else None
-        _register_token(index, token, href)
+        _register_attrs(index, attrs, token=token)
 
     for match in WHITEBOARD_TAG_PATTERN.finditer(xml):
         _register_token(index, match.group(1))
@@ -71,13 +92,12 @@ def build_media_index_from_xml(xml: str) -> MediaIndex:
         for match in pattern.finditer(xml):
             attrs = match.group(1)
             token_match = TOKEN_ATTR_PATTERN.search(attrs)
-            if not token_match:
+            src_match = SRC_ATTR_PATTERN.search(attrs)
+            token = (token_match.group(1) if token_match else None) or (
+                src_match.group(1) if src_match else None
+            )
+            if not token:
                 continue
-            token = token_match.group(1)
-            if token.startswith("http"):
-                continue
-            href_match = HREF_ATTR_PATTERN.search(attrs)
-            href = href_match.group(1) if href_match else None
-            _register_token(index, token, href)
+            _register_attrs(index, attrs, token=token)
 
     return index

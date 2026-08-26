@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 仓库入口：安装本机工具、写 .env、软链 Skills、构建演示站并启动。
-# 不要交互提问。缺 App ID/Secret 时退出码 2，由 Agent 向用户要。
+# 仓库入口：安装本机预览栈、写 .env、软链 Skills、构建演示站并启动预览。
+# 不要交互提问。飞书读写走环境已登录的 lark-cli，不创建应用、不下载 CLI。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,34 +11,16 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 source "$ROOT/scripts/uv_path.sh"
 
 HUGO_VER="0.147.9"
-APP_ID=""
-APP_SECRET=""
 NO_START=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --app-id)
-      APP_ID="${2:-}"
-      shift 2
-      ;;
-    --app-id=*)
-      APP_ID="${1#*=}"
-      shift
-      ;;
-    --app-secret)
-      APP_SECRET="${2:-}"
-      shift 2
-      ;;
-    --app-secret=*)
-      APP_SECRET="${1#*=}"
-      shift
-      ;;
     --no-start)
       NO_START=1
       shift
       ;;
     -h|--help)
-      echo "用法: ./install.sh [--app-id ID] [--app-secret SECRET] [--no-start]"
+      echo "用法: ./install.sh [--no-start]"
       exit 0
       ;;
     *)
@@ -161,46 +143,6 @@ ensure_hugo() {
   return 1
 }
 
-ensure_node() {
-  if have npx || have npm; then
-    echo "✓ Node.js"
-    return 0
-  fi
-  echo "==> 安装 Node.js（飞书命令行 lark-cli 需要）"
-  if have brew; then
-    brew install node || true
-  elif have apt-get; then
-    privileged apt-get update -y && privileged apt-get install -y nodejs npm || true
-  fi
-  if have npx || have npm; then
-    echo "✓ 已安装 Node.js"
-    return 0
-  fi
-  echo "✗ 缺少 Node.js，没法安装飞书命令行 lark-cli。请到 https://nodejs.org 安装 LTS，装好后说「继续安装」。" >&2
-  return 1
-}
-
-ensure_lark_cli() {
-  if have lark-cli; then
-    echo "✓ lark-cli（$(command -v lark-cli)）"
-    return 0
-  fi
-  echo "==> 安装 lark-cli"
-  if have npx; then
-    npx --yes @larksuite/cli@latest install || true
-    export PATH="$HOME/.local/bin:$PATH"
-  elif have npm; then
-    npm install -g @larksuite/cli || true
-    export PATH="$HOME/.local/bin:$PATH"
-  fi
-  if have lark-cli; then
-    echo "✓ 已安装 lark-cli"
-    return 0
-  fi
-  echo "✗ 缺少 lark-cli。请确认已安装 Node.js 后说「继续安装」。" >&2
-  return 1
-}
-
 ensure_ffmpeg() {
   if have ffmpeg; then
     echo "✓ ffmpeg"
@@ -227,12 +169,6 @@ fi
 if ! ensure_hugo; then
   exit 1
 fi
-if ! ensure_node; then
-  exit 1
-fi
-if ! ensure_lark_cli; then
-  exit 1
-fi
 ensure_ffmpeg
 
 echo "==> 同步项目依赖"
@@ -243,7 +179,7 @@ fi
 
 echo "==> 写入项目配置"
 set +e
-"$UV" run python -m bot.initialize --root "$ROOT" --app-id "$APP_ID" --app-secret "$APP_SECRET"
+"$UV" run python -m bot.initialize --root "$ROOT"
 cfg="$?"
 set -e
 if [[ "$cfg" -ne 0 ]]; then
@@ -256,7 +192,7 @@ if ! "$UV" run python "$ROOT/skills/deploy-local/scripts/run.py" --root "$ROOT";
 fi
 
 if [[ "$NO_START" -eq 0 ]]; then
-  echo "==> 启动飞书机器人与预览"
+  echo "==> 启动本地预览"
   if ! bash "$ROOT/scripts/start.sh"; then
     echo "⚠ 未能自动启动。可以说「启动」让我再试 ./scripts/start.sh"
   fi
@@ -265,4 +201,4 @@ fi
 echo
 echo "安装完成。"
 echo "  预览: http://127.0.0.1:1314/"
-echo "  去飞书把机器人拉进群，发一篇云文档链接即可。"
+echo "  把一篇能打开的飞书云文档链接发给助手即可。"

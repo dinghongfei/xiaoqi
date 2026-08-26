@@ -15,7 +15,9 @@ _status() {
 }
 
 code=0
-_status "$DATA_DIR/bot.pid" "飞书进程" || code=1
 _status "$DATA_DIR/preview.pid" "预览 HTTP" || code=1
+if [[ -f "$DATA_DIR/bot.pid" ]]; then
+  _status "$DATA_DIR/bot.pid" "飞书进程（遗留，可忽略）" || true
+fi
 echo "预览地址: http://127.0.0.1:1314/"
 exit "$code"
