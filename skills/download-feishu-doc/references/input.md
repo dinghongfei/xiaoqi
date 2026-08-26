@@ -15,7 +15,7 @@ lark-cli docs +fetch --api-version v2 --doc 'DOCX_TOKEN' --doc-format xml --deta
 --token 'WIKI_TOKEN' --kind wiki --section blog
 ```
 
-正文里的图片/视频若已是完整媒体 URL，脚本会直接下载到 `data/jobs/<token>/media/`，不必先 `media-download`。
+正文里的图片/视频若已是完整媒体 URL，脚本会直接下载到 `data/jobs/<token>/media/`，不必先 `media-download`。`enrich-doc` 插入封面后也必须再走一遍本流程，用飞书正文覆盖本地稿。
 
 可选：`--markdown`、`--xml`、`--media-dir`、`--document-id`。
 

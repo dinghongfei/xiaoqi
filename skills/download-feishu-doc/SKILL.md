@@ -26,6 +26,7 @@ download-feishu-doc/
 - 用户给了飞书 docx / wiki 链接，后续要做官网或公众号。
 - 官网预览、公众号预览、只丢链接：都先跑本 Skill。
 - 同一链接再次发送也必须再跑：云文档可能已修改。不要因为 `data/last-job.json` 已有同一 token 而跳过。
+- `enrich-doc` 刚把封面插入云文档之后也必须再跑：用飞书正文覆盖本地稿，不要沿用 apply 写过的 `processed.md`。
 - 仅当用户**没有**给新链接、只要把上次已下载的 `processed.md` 再出公众号时，才读 `data/last-job.json`。
 
 ```mermaid
@@ -91,4 +92,4 @@ uv run python <本Skill目录>/scripts/run.py --token 'WIKI_TOKEN' --kind wiki -
 5. **不**写 `content/`，**不**跑 Hugo。
 6. 未更换的媒体会复用 `data/jobs/<token>/media/` 与 `site/static/` 里已有文件。
 
-还没有 `raw.md` 时脚本会失败并打印应执行的 lark-cli 命令。元数据表格不完整时加工仍可成功，但 `convert-website` 会失败。可先 `enrich-doc`；写回云文档也由你用 lark-cli 完成。
+还没有 `raw.md` 时脚本会失败并打印应执行的 lark-cli 命令。元数据表格不完整时加工仍可成功，但 `convert-website` 会失败。可先 `enrich-doc`；写回云文档、插入封面后必须再跑本 Skill，不要沿用 apply 写过的 `processed.md`。

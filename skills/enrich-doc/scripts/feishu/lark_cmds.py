@@ -58,6 +58,14 @@ def docs_move_blocks(page_id: str, src_block_ids: str) -> str:
     )
 
 
+def download_skill(token: str, *, kind: str = "docx") -> str:
+    extra = " --kind wiki" if kind == "wiki" else ""
+    return (
+        "uv run python skills/download-feishu-doc/scripts/run.py "
+        f"--token '{token}'{extra}"
+    )
+
+
 AUTH_HINT = (
     "调用 lark-cli 时不要加 --profile 或 --as。"
     "拉文档、写回请传 token，不要传 feishu.doubao.com 等完整 URL。"

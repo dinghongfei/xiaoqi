@@ -180,8 +180,10 @@ def test_inspect_ready_without_cover_image():
     assert "机器人" in result.article_text
     assert result.need_cover is True
     assert result.has_image_heading is False
+    assert result.default_author == "小七"
     blob = result.to_dict()
     assert blob["need_cover"] is True
+    assert blob["default_author"] == "小七"
     assert blob["required_fields"][0] == "slug"
     assert "article_text" in blob
     assert blob["can_edit"] is None
@@ -229,12 +231,26 @@ def test_apply_success_without_images_writes_image_section():
     assert "封面提示词" not in result.enrichment_xml
     assert "lark-cli docs +update" in result.message
     assert "media-insert" in result.message
+    assert "download-feishu-doc" in result.message
     assert "--doc 'TokenOne'" in result.message
     for line in result.message.splitlines():
         if line.startswith("lark-cli"):
             assert "--profile" not in line
             assert "--as" not in line
             assert "https://" not in line
+
+
+def test_apply_defaults_author_to_xiaoqi():
+    data = dict(VALID_METADATA)
+    data.pop("author")
+    result = Enricher().apply_metadata(
+        DocRef(kind="docx", token="TokenOne"),
+        data,
+        markdown_text="正文：关于机器人的文章",
+    )
+    assert result.status == "enriched"
+    assert result.metadata["author"] == "小七"
+    assert "<td><p>小七</p></td>" in result.enrichment_xml
 
 
 def test_apply_still_needs_cover_when_body_has_images():
@@ -420,8 +436,10 @@ def test_apply_writes_local_files(tmp_path: Path):
     assert "# 属性" not in raw_text
     assert (work / "enrich.xml").is_file()
     assert "# 图片" in processed_text
+    assert "![封面]" not in processed_text
     assert "封面提示词" not in processed_text
     assert "media-insert" in result.message
+    assert "download-feishu-doc" in result.message
     job = load_last_job(settings)
     assert job["slug"] == "demo-article"
     assert job["metadata_warning"] == ""
@@ -446,9 +464,12 @@ def test_apply_copies_cover_image(tmp_path: Path):
     assert dest.is_file()
     assert dest.read_bytes() == b"fake-png"
     processed = (work / "processed.md").read_text(encoding="utf-8")
-    assert "![封面](cover.png)" in processed
+    assert "![封面](cover.png)" not in processed
+    assert "# 图片" in processed
     assert "封面提示词" not in processed
     assert "cover.png" in result.message
+    assert "download-feishu-doc" in result.message
+    assert "docs +fetch" in result.message
 
 
 def test_inspect_rejects_local_existing_metadata(tmp_path: Path):

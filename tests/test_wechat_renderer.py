@@ -349,6 +349,9 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert "wrapListBareText" in page
     assert "INLINE_TAGS" in page
     assert 'querySelectorAll("img")' in page
+    assert "naturalWidth" in page
+    assert "sizeCopiedImages" in page
+    assert "IMG_PROPS" not in page
     assert "getComputedStyle" in page
     assert "--wx-accent" in page
     assert 'data-opt="device"' in page

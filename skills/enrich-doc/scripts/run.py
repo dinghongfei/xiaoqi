@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     inspect_parser = sub.add_parser("inspect", help="读取正文线索，不写回")
     _add_doc_args(inspect_parser)
 
-    apply_parser = sub.add_parser("apply", help="把已生成的元数据写入本地 processed.md 与 enrich.xml")
+    apply_parser = sub.add_parser("apply", help="把已生成的元数据写入本地属性稿与 enrich.xml（封面不写进 processed.md）")
     _add_doc_args(apply_parser)
     apply_parser.add_argument("--slug", default="")
     apply_parser.add_argument("--lang", default="")

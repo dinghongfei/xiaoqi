@@ -58,7 +58,7 @@ _ATX_H1_LINE = re.compile(r"^#[^#\n](.*)$")
 _ENRICHMENT_H1 = frozenset({"属性", "图片"})
 
 ARTICLE_TEXT_MAX = 20000
-DEFAULT_AUTHOR = "内容编辑"
+DEFAULT_AUTHOR = "小七"
 _COVER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
@@ -426,12 +426,25 @@ class Enricher:
                 if self.settings is not None
                 else "data/jobs/<token>/cover.png"
             )
+            if self.settings is not None:
+                work = Path(self.settings.jobs_dir) / _safe_job_token(doc_ref.token)
+                raw_md = relpath(work / "raw.md")
+                raw_xml = relpath(work / "raw.xml")
+            else:
+                raw_md = "data/jobs/<token>/raw.md"
+                raw_xml = "data/jobs/<token>/raw.xml"
             parts.extend(
                 [
-                    "封面图由你生成后插入（不要把生图提示词写进文档）：",
+                    "封面图插入云文档（不要把生图提示词或封面图写进本地 processed.md）：",
                     lark_cmds.media_insert(doc, cover),
                     "把 media-insert 返回的 block_id 移到「图片」标题后面：",
                     lark_cmds.docs_move_blocks("<图片标题id>", "<image_block_id>"),
+                    "插图完成后必须重新拉取云文档并跑 download-feishu-doc，用下载结果覆盖本地稿，保证与飞书一致：",
+                    lark_cmds.fetch_markdown(doc),
+                    f"把 markdown 写入 {raw_md}",
+                    lark_cmds.fetch_xml(doc),
+                    f"把 xml 写入 {raw_xml}",
+                    lark_cmds.download_skill(doc_ref.token, kind=doc_ref.kind),
                 ]
             )
         return "\n".join(parts)
@@ -642,11 +655,12 @@ class Enricher:
         need_cover = not image_section_has_media(raw)
         payload = dict(data)
         payload.pop("cover_prompt", None)
+        if not str(payload.get("author") or "").strip():
+            payload["author"] = DEFAULT_AUTHOR
         cover_arg = (cover_image or str(payload.pop("cover_image", "") or "")).strip()
         if not need_cover:
             cover_arg = ""
 
-        cover_image_md: str | None = None
         staged_cover = ""
         if cover_arg:
             src = Path(cover_arg)
@@ -671,10 +685,8 @@ class Enricher:
                 )
             if self.settings is not None:
                 dest = self._stage_cover_image(src, doc_ref)
-                cover_image_md = f"![封面]({dest.name})"
                 staged_cover = relpath(dest)
             else:
-                cover_image_md = f"![封面]({src.name})"
                 staged_cover = src.name
 
         try:
@@ -705,7 +717,7 @@ class Enricher:
                 metadata=metadata,
                 include_image_section=include_image_section,
                 include_image_heading=include_image_heading,
-                cover_image_md=cover_image_md,
+                cover_image_md=None,  # cover lives on Feishu; re-download after insert
                 source_markdown=raw,
             )
         except Exception as e:

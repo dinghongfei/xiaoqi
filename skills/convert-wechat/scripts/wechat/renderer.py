@@ -793,7 +793,6 @@ def _preview_script() -> str:
         "border-left-width", "border-left-style", "border-left-color",
         "border-radius", "word-break", "display", "white-space"
       ];
-      const IMG_PROPS = ["max-width", "width", "height", "display", "object-fit", "object-position", "aspect-ratio"];
       const INLINE_TAGS = {
         a: 1, b: 1, code: 1, del: 1, em: 1, i: 1, mark: 1, small: 1, span: 1, strong: 1, u: 1
       };
@@ -856,10 +855,9 @@ def _preview_script() -> str:
           if (!node || live.nodeType !== 1) continue;
           const cs = window.getComputedStyle(live);
           const tag = live.tagName.toLowerCase();
-          const props = tag === "img" ? STYLE_PROPS.concat(IMG_PROPS) : STYLE_PROPS;
           const parts = [];
-          for (let p = 0; p < props.length; p++) {
-            const prop = props[p];
+          for (let p = 0; p < STYLE_PROPS.length; p++) {
+            const prop = STYLE_PROPS[p];
             const val = cs.getPropertyValue(prop);
             if (!keep(prop, val)) continue;
             if (prop === "display" && INLINE_TAGS[tag]) continue;
@@ -880,6 +878,27 @@ def _preview_script() -> str:
           node.removeAttribute("id");
         }
         return clone;
+      }
+
+      function sizeCopiedImages(liveRoot, clone) {
+        const liveImgs = liveRoot.querySelectorAll("img");
+        const cloneImgs = clone.querySelectorAll("img");
+        const n = Math.min(liveImgs.length, cloneImgs.length);
+        for (let i = 0; i < n; i++) {
+          const live = liveImgs[i];
+          const node = cloneImgs[i];
+          const nw = live.naturalWidth || 0;
+          const nh = live.naturalHeight || 0;
+          const extra = nw && nh
+            ? "width: " + nw + "px; height: " + nh + "px; max-width: none"
+            : "width: auto; height: auto; max-width: none";
+          const prev = node.getAttribute("style") || "";
+          node.setAttribute("style", prev ? prev.replace(/;?\s*$/, "") + "; " + extra : extra);
+          if (nw && nh) {
+            node.setAttribute("width", String(nw));
+            node.setAttribute("height", String(nh));
+          }
+        }
       }
 
       function flattenListEmphasis(root) {
@@ -996,6 +1015,7 @@ def _preview_script() -> str:
         try {
           const live = copyRoot();
           const clone = snapshotInline(live);
+          sizeCopiedImages(live, clone);
           flattenListEmphasis(clone);
           wrapListBareText(clone);
           preserveCodeSpaces(clone);

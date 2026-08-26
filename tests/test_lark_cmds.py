@@ -20,6 +20,12 @@ def test_cmds_omit_profile_and_as():
     assert "--file 'data/jobs/tok/cover.png'" in insert
     assert "--as" not in insert
     assert "--profile" not in insert
+    download = lark_cmds.download_skill("TokOne")
+    assert "skills/download-feishu-doc/scripts/run.py" in download
+    assert "--token 'TokOne'" in download
+    assert "--kind wiki" not in download
+    wiki_dl = lark_cmds.download_skill("WikiTok", kind="wiki")
+    assert "--kind wiki" in wiki_dl
     assert "不要传 feishu.doubao.com" in lark_cmds.AUTH_HINT
 
 
