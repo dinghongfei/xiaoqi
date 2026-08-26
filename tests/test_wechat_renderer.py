@@ -295,6 +295,9 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert 'data-opt="device"' in page
     assert "手机" in page
     assert "电脑" in page
+    assert 'class="wx-home"' in page
+    assert 'href="/"' in page
+    assert "演示站点" in page
     assert "<h2>主题</h2>" not in page
     assert "优雅" not in page
     assert "简洁" not in page

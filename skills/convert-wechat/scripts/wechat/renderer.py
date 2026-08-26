@@ -194,6 +194,16 @@ def _abs_url(src: str, base: str) -> str:
     return base.rstrip("/") + "/" + src.lstrip("/")
 
 
+def _hugo_site_title(hugo_root: Path | None) -> str:
+    if hugo_root is None:
+        return "演示站点"
+    path = Path(hugo_root) / "hugo.toml"
+    if not path.is_file():
+        return "演示站点"
+    match = _FRONT_MATTER_TITLE.search(path.read_text(encoding="utf-8"))
+    return match.group(2).strip() if match else "演示站点"
+
+
 def strip_front_matter(markdown_text: str) -> str:
     return _FRONT_MATTER.sub("", markdown_text.lstrip(), count=1)
 
@@ -519,6 +529,21 @@ def _chrome_css() -> str:
       background: #fff;
       border-bottom: 1px solid #e5e7eb;
     }
+    .wx-toolbar__left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+    .wx-home {
+      color: #111827;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .wx-home:hover { color: #111827; }
     .wx-seg { display: flex; flex-wrap: wrap; gap: 8px; }
     .wx-seg button, .wx-copy {
       border: 1px solid #e5e7eb;
@@ -932,10 +957,12 @@ def build_preview_page(
     slug: str = "",
     author: str = "",
     summary: str = "",
+    home_label: str = "演示站点",
 ) -> str:
     """Wrap article with device preview, style panel, and copy toolbar."""
     safe_title = html.escape(title)
     safe_slug = html.escape(slug)
+    safe_home = html.escape(home_label or "演示站点")
     copy_script = _preview_script()
     chrome_css = _chrome_css()
     panel = _panel_html(title=title, author=author, summary=summary)
@@ -955,7 +982,10 @@ def build_preview_page(
 <body data-slug="{safe_slug}">
   <div class="wx-app">
     <header class="wx-toolbar">
-      {device_seg}
+      <div class="wx-toolbar__left">
+        <a class="wx-home" href="/">{safe_home}</a>
+        {device_seg}
+      </div>
       <button type="button" class="wx-copy" id="copy-btn">正文复制</button>
     </header>
     <div class="wx-body">
@@ -1027,6 +1057,7 @@ def convert_wechat(
         slug=slug,
         author=author,
         summary=summary,
+        home_label=_hugo_site_title(settings.hugo_root),
     )
 
     out_dir = settings.preview_dir / "_wechat" / lang / slug
