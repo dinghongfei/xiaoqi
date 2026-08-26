@@ -76,7 +76,10 @@ class CliCapabilities:
 
     @property
     def needs_env_credentials(self) -> bool:
-        return not self.has_profile or not self.has_as
+        # Official lark-cli keeps --as on subcommands, not as a global flag.
+        # Injecting LARKSUITE_CLI_APP_* over a named profile makes bot token
+        # lookup fail with token_missing; only sandboxes without --profile need env.
+        return not self.has_profile
 
 
 def _parse_cli_stdout(stdout: str) -> dict[str, Any]:
