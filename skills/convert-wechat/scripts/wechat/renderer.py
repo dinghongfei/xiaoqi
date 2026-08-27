@@ -525,28 +525,40 @@ def _chrome_css() -> str:
       color: #111827;
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
     }
-    .wx-app { display: flex; flex-direction: column; height: 100%; }
+    .wx-app {
+      display: flex;
+      flex-direction: row;
+      height: 100%;
+      min-height: 0;
+    }
+    .wx-main {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+    }
     .wx-toolbar {
       flex: none;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 10px 16px;
+      gap: 8px;
+      padding: 6px 12px;
       background: #fff;
       border-bottom: 1px solid #e5e7eb;
     }
     .wx-toolbar__left {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 10px;
       min-width: 0;
     }
     .wx-home {
       color: #111827;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.02em;
       text-decoration: none;
       white-space: nowrap;
     }
@@ -556,24 +568,24 @@ def _chrome_css() -> str:
       border: 1px solid #e5e7eb;
       background: #fff;
       color: #111827;
-      padding: 6px 12px;
-      border-radius: 6px;
+      padding: 4px 10px;
+      border-radius: 5px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
+      line-height: 1.3;
     }
     .wx-copy {
       background: #2563EB;
       border-color: #2563EB;
       color: #fff;
-      font-size: 14px;
-      padding: 8px 14px;
+      font-size: 13px;
+      padding: 5px 11px;
     }
     .wx-copy:disabled { opacity: 0.65; cursor: wait; }
     .wx-seg button[aria-pressed="true"] {
       border-color: #111827;
       font-weight: 600;
     }
-    .wx-body { display: flex; flex-direction: row; flex: 1; min-height: 0; }
     .wx-preview {
       flex: 1;
       min-width: 0;
@@ -584,6 +596,7 @@ def _chrome_css() -> str:
       justify-content: center;
       align-items: stretch;
       padding: 16px;
+      background: #f3f4f6;
     }
     #wx-device {
       background: #fff;
@@ -606,9 +619,11 @@ def _chrome_css() -> str:
       padding: 28px 24px;
     }
     .wx-panel {
-      width: 300px;
+      width: 280px;
       flex: none;
       flex-shrink: 0;
+      align-self: stretch;
+      min-height: 0;
       overflow: auto;
       background: #fff;
       border-left: 1px solid #e5e7eb;
@@ -688,7 +703,7 @@ def _preview_script() -> str:
       const host = document.getElementById("article-html");
       const deviceEl = document.getElementById("wx-device");
       const btn = document.getElementById("copy-btn");
-      const LABEL = "正文复制";
+      const LABEL = "复制正文";
       const storageKey = "wx-preview-style-v1:" + (document.body.getAttribute("data-slug") || "default");
       const STYLE_PROPS = [
         "color", "background-color",
@@ -1015,21 +1030,21 @@ def build_preview_page(
 </head>
 <body data-slug="{safe_slug}">
   <div class="wx-app">
-    <header class="wx-toolbar">
-      <div class="wx-toolbar__left">
-        <a class="wx-home" href="/">{safe_home}</a>
-        {device_seg}
-      </div>
-      <button type="button" class="wx-copy" id="copy-btn">正文复制</button>
-    </header>
-    <div class="wx-body">
+    <div class="wx-main">
+      <header class="wx-toolbar">
+        <div class="wx-toolbar__left">
+          <a class="wx-home" href="/">{safe_home}</a>
+          {device_seg}
+        </div>
+        <button type="button" class="wx-copy" id="copy-btn">复制正文</button>
+      </header>
       <main class="wx-preview">
         <div id="wx-device" data-device="phone">
           <div id="article-html">{article_html}</div>
         </div>
       </main>
-      {panel}
     </div>
+    {panel}
   </div>
   <script type="application/json" id="wx-theme-data">{payload}</script>
   <script>
