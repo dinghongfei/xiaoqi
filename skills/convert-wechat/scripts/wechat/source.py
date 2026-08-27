@@ -6,6 +6,9 @@ import re
 from dataclasses import dataclass
 
 _TABLE_ROW = re.compile(r"^\|")
+_IMAGE_HEADING = re.compile(r"^#\s*图片\s*$")
+_COVER_MD = re.compile(r"!\[[^\]]*\]\((/image/[^)\s]+|https?://[^)\s]+)(?:\s+[\"'][^\"']*[\"'])?\)")
+_COVER_SRC = re.compile(r"""(?:src|featured_image)\s*=\s*['\"](/image/[^'\"]+|https?://[^'\"]+)['\"]""")
 
 
 @dataclass
@@ -16,6 +19,7 @@ class WeChatSource:
     lang: str = ""
     author: str = ""
     summary: str = ""
+    cover_image: str = ""
 
 
 def normalize_wechat_lang(lang: str) -> str:
@@ -48,6 +52,27 @@ def _parse_metadata_region(region: str) -> dict[str, str]:
     return data
 
 
+def _first_cover_src(text: str) -> str:
+    """Pick a site-path or http(s) image; skip cover-prompt text."""
+    match = _COVER_MD.search(text or "") or _COVER_SRC.search(text or "")
+    return match.group(1).strip() if match else ""
+
+
+def extract_cover_image(metadata_region: str) -> str:
+    """Cover lives under「# 图片」; fall back to any image in the metadata region."""
+    lines = (metadata_region or "").splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if _IMAGE_HEADING.match(line.strip()):
+            start = i + 1
+            break
+    if start is not None:
+        found = _first_cover_src("\n".join(lines[start:]))
+        if found:
+            return found
+    return _first_cover_src(metadata_region)
+
+
 def parse_processed_markdown(text: str) -> WeChatSource | None:
     """Split processed.md into metadata + body. None if this is not that format."""
     lines = (text or "").splitlines()
@@ -72,6 +97,7 @@ def parse_processed_markdown(text: str) -> WeChatSource | None:
         lang=normalize_wechat_lang(meta.get("lang", "")),
         author=meta.get("author", "").strip(),
         summary=meta.get("summary", "").strip(),
+        cover_image=extract_cover_image(region),
     )
 
 

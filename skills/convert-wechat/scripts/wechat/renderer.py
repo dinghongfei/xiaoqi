@@ -15,7 +15,11 @@ from last_job import abs_from_job, load_last_job, relpath, update_last_job
 from urls import wechat_page_url
 from wechat.catalog import write_wechat_catalog
 from wechat.highlight import highlight_code, parse_fence_info
-from wechat.source import fallback_hugo_field, fallback_hugo_title, parse_processed_markdown
+from wechat.source import (
+    fallback_hugo_field,
+    fallback_hugo_title,
+    parse_processed_markdown,
+)
 from wechat.themes import (
     ARTICLE_PREVIEW_CSS,
     COLORS,
@@ -90,6 +94,11 @@ _VOID_TAGS = frozenset(
 )
 _SKIP_LIST_WRAP = frozenset({"code", "pre", "script", "style", "svg", "textarea"})
 _LIST_TEXT_PARENTS = frozenset({"div", "li", "p", "section"})
+COVER_HINT = (
+    "此图为封面，可一并复制到公众号编辑器。"
+    "粘贴后选中此图设为封面，再从正文删除本段即可。"
+    "若不需要复制封面，取消勾选「复制封面图」。"
+)
 
 
 class _ListBareTextWrapper(HTMLParser):
@@ -354,12 +363,28 @@ def _merge_video_covers(body: str) -> str:
     return _VIDEO_COVER.sub(repl, body, count=1)
 
 
+def _cover_html(src: str, site_base_url: str) -> str:
+    url = _abs_url((src or "").strip(), site_base_url)
+    if not url:
+        return ""
+    return (
+        f'<section class="wechat-cover" data-wx-cover>'
+        f"<figure>"
+        f'<img src="{html.escape(url, quote=True)}" alt="封面">'
+        f"</figure>"
+        f'<p class="wechat-cover-hint">{html.escape(COVER_HINT)}</p>'
+        f"<hr>"
+        f"</section>"
+    )
+
+
 def restyle_markdown(
     markdown_text: str,
     *,
     site_base_url: str,
     xml_text: str = "",
     article_title: str = "",
+    cover_image: str = "",
 ) -> str:
     """Turn article markdown into semantic HTML. Styles stay in the preview page."""
     if xml_text:
@@ -428,7 +453,8 @@ def restyle_markdown(
     body = _restore_fenced_code(body, code_blocks)
     body = _merge_video_covers(body)
     body = wrap_list_bare_text(body)
-    return f'<div class="wechat-article">{body}</div>'
+    cover = _cover_html(cover_image, site_base_url)
+    return f'<div class="wechat-article">{cover}{body}</div>'
 
 
 def _extract_article_div(article_html: str) -> str:
@@ -574,6 +600,29 @@ def _chrome_css() -> str:
       font-size: 12px;
       line-height: 1.3;
     }
+    .wx-toolbar__right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: none;
+    }
+    .wx-copy-cover {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #374151;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .wx-copy-cover input {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      accent-color: #2563EB;
+      cursor: pointer;
+    }
     .wx-copy {
       background: #2563EB;
       border-color: #2563EB;
@@ -703,6 +752,7 @@ def _preview_script() -> str:
       const host = document.getElementById("article-html");
       const deviceEl = document.getElementById("wx-device");
       const btn = document.getElementById("copy-btn");
+      const copyCoverEl = document.getElementById("copy-cover");
       const LABEL = "复制正文";
       const storageKey = "wx-preview-style-v1:" + (document.body.getAttribute("data-slug") || "default");
       const STYLE_PROPS = [
@@ -719,13 +769,13 @@ def _preview_script() -> str:
         "border-radius", "word-break", "display", "white-space",
         "overflow", "overflow-x", "overflow-y", "box-sizing"
       ];
-      const IMG_PROPS = ["max-width", "height", "display"];
       const INLINE_TAGS = {
         a: 1, b: 1, code: 1, del: 1, em: 1, i: 1, mark: 1, small: 1, span: 1, strong: 1, u: 1
       };
+      const IMG_COPY_STYLE = "max-width: 100%; height: auto; display: block;";
 
       function loadState() {
-        const defaults = Object.assign({ device: "phone" }, data.defaults || {});
+        const defaults = Object.assign({ device: "phone", copyCover: true }, data.defaults || {});
         try {
           const raw = localStorage.getItem(storageKey);
           if (!raw) return defaults;
@@ -772,8 +822,17 @@ def _preview_script() -> str:
         const font = (data.fonts || {})[state.font] || (data.fonts || {}).sans;
         if (font && font.stack) host.style.setProperty("--wx-font", font.stack);
         deviceEl.dataset.device = state.device;
+        if (copyCoverEl) copyCoverEl.checked = state.copyCover !== false;
         syncButtons();
         try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (err) {}
+      }
+
+      function styleCopiedImage(node) {
+        node.removeAttribute("width");
+        node.removeAttribute("height");
+        node.removeAttribute("class");
+        node.removeAttribute("id");
+        node.setAttribute("style", IMG_COPY_STYLE);
       }
 
       function snapshotInline(liveRoot) {
@@ -784,12 +843,15 @@ def _preview_script() -> str:
           const live = liveNodes[i];
           const node = cloneNodes[i];
           if (!node || live.nodeType !== 1) continue;
-          const cs = window.getComputedStyle(live);
           const tag = live.tagName.toLowerCase();
-          const props = tag === "img" ? STYLE_PROPS.concat(IMG_PROPS) : STYLE_PROPS;
+          if (tag === "img") {
+            styleCopiedImage(node);
+            continue;
+          }
+          const cs = window.getComputedStyle(live);
           const parts = [];
-          for (let p = 0; p < props.length; p++) {
-            const prop = props[p];
+          for (let p = 0; p < STYLE_PROPS.length; p++) {
+            const prop = STYLE_PROPS[p];
             let val = cs.getPropertyValue(prop);
             if (!keep(prop, val)) continue;
             if (prop === "display" && INLINE_TAGS[tag]) continue;
@@ -945,8 +1007,13 @@ def _preview_script() -> str:
           flattenListEmphasis(clone);
           wrapListBareText(clone);
           preserveCodeSpaces(clone);
+          const cover = clone.querySelector("[data-wx-cover]");
+          if (cover) {
+            if (!copyCoverEl || !copyCoverEl.checked) cover.remove();
+            else cover.removeAttribute("data-wx-cover");
+          }
           await inlineImages(clone);
-          await writeClipboard(clone.outerHTML, live.innerText);
+          await writeClipboard(clone.outerHTML, clone.innerText);
           btn.textContent = "已复制";
           setTimeout(() => {
             if (btn.textContent === "已复制") btn.textContent = LABEL;
@@ -994,6 +1061,12 @@ def _preview_script() -> str:
         apply();
       });
       btn.addEventListener("click", copyArticle);
+      if (copyCoverEl) {
+        copyCoverEl.addEventListener("change", () => {
+          state.copyCover = copyCoverEl.checked;
+          try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (err) {}
+        });
+      }
       apply();
     })();
 """
@@ -1036,7 +1109,13 @@ def build_preview_page(
           <a class="wx-home" href="/">{safe_home}</a>
           {device_seg}
         </div>
-        <button type="button" class="wx-copy" id="copy-btn">复制正文</button>
+        <div class="wx-toolbar__right">
+          <label class="wx-copy-cover" title="勾选后，复制正文时会带上封面图和说明；取消则只复制正文">
+            <input type="checkbox" id="copy-cover" checked>
+            复制封面图
+          </label>
+          <button type="button" class="wx-copy" id="copy-btn">复制正文</button>
+        </div>
       </header>
       <main class="wx-preview">
         <div id="wx-device" data-device="phone">
@@ -1073,6 +1152,7 @@ def convert_wechat(
 
     text = source.read_text(encoding="utf-8")
     parsed = parse_processed_markdown(text)
+    cover_image = ""
     if parsed is not None:
         body = parsed.body
         slug = parsed.slug or str(job.get("slug") or source.stem)
@@ -1080,6 +1160,7 @@ def convert_wechat(
         article_title = parsed.title or fallback_hugo_title(text) or slug
         author = parsed.author
         summary = parsed.summary
+        cover_image = parsed.cover_image
     else:
         body = text
         slug = str(job.get("slug") or source.stem)
@@ -1087,6 +1168,10 @@ def convert_wechat(
         article_title = fallback_hugo_title(text) or _front_matter_title(text) or slug
         author = fallback_hugo_field(text, "author")
         summary = fallback_hugo_field(text, "summary")
+    if not cover_image:
+        cover_image = str(job.get("featured_image") or "").strip()
+    if not cover_image:
+        cover_image = fallback_hugo_field(text, "featured_image")
 
     xml_text = ""
     xml_path = abs_from_job(settings, job.get("xml_path"))
@@ -1099,6 +1184,7 @@ def convert_wechat(
                 site_base_url=settings.site_base_url,
                 xml_text=xml_text,
                 article_title=article_title,
+                cover_image=cover_image,
             )
         )
     except StyleOverlayError as exc:

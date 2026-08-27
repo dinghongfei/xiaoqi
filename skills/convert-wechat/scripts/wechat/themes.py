@@ -97,6 +97,32 @@ ARTICLE_PREVIEW_CSS = """
   color: #374151;
   font-weight: 650;
 }
+#article-html .wechat-article .wechat-cover {
+  margin: 0 0 0.4em;
+}
+#article-html .wechat-article .wechat-cover figure {
+  margin: 0 0 8px;
+}
+#article-html .wechat-article .wechat-cover img {
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+#article-html .wechat-article .wechat-cover-hint {
+  color: #6b7280;
+  font-size: 0.8125em;
+  line-height: 1.65;
+  margin: 0;
+}
+#article-html .wechat-article .wechat-cover hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 16px 0 8px;
+}
+#article-html .wechat-article .wechat-cover + h1 {
+  margin-top: 0.6em;
+}
 #article-html .wechat-article p { margin: 0.85em 0; }
 #article-html .wechat-article a { color: var(--wx-accent); text-decoration: none; }
 #article-html .wechat-article strong { font-weight: 700; }

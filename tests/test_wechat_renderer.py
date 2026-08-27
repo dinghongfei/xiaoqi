@@ -8,11 +8,13 @@ from config import Settings
 from last_job import dump_last_job
 from wechat.highlight import highlight_code
 from wechat.renderer import (
+    COVER_HINT,
     convert_wechat,
     restyle_markdown,
     build_preview_page,
     wrap_list_bare_text,
 )
+from wechat.source import parse_processed_markdown
 from wechat.themes import theme_payload
 
 
@@ -62,6 +64,11 @@ SAMPLE_PROCESSED = """# 飞书文档标题
 
 正文保持原意。
 """
+
+SAMPLE_PROCESSED_COVER = SAMPLE_PROCESSED.replace(
+    "封面提示词不要出现在正文",
+    "![](/image/article-cover.png)",
+)
 
 
 def test_restyle_keeps_semantic_html_and_absolute_images():
@@ -348,6 +355,12 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert 'querySelectorAll("img")' in page
     assert "getComputedStyle" in page
     assert "let val = cs.getPropertyValue(prop)" in page
+    assert "styleCopiedImage" in page
+    assert "IMG_COPY_STYLE" in page
+    assert "max-width: 100%; height: auto; display: block;" in page
+    assert 'removeAttribute("width")' in page
+    assert 'removeAttribute("height")' in page
+    assert "IMG_PROPS" not in page
     assert "--wx-accent" in page
     assert 'data-opt="device"' in page
     assert "手机" in page
@@ -367,6 +380,13 @@ def test_preview_page_has_copy_device_and_style_panel():
     assert 'aria-label="复制摘要"' in page
     assert "wx-meta-copy" in page
     assert "wx-style-start" in page
+    assert "复制封面图" in page
+    assert 'id="copy-cover" checked' in page
+    assert "wx-copy-cover" in page
+    assert "wx-toolbar__right" in page
+    assert 'querySelector("[data-wx-cover]")' in page
+    assert "copyCoverEl.checked" in page
+    assert "state.copyCover" in page
     filled = build_preview_page(
         "<div class='wechat-article'><p>正文</p></div>",
         title="示例标题",
@@ -465,6 +485,96 @@ def test_convert_wechat_reads_processed_markdown(tmp_path: Path):
     assert "| slug |" not in page
     assert "示意图说明" in page
     assert "正文保持原意" in page
+    assert 'class="wechat-cover"' not in page
+    assert COVER_HINT not in page
+    assert "复制封面图" in page
+
+
+def test_parse_processed_cover_from_image_section():
+    parsed = parse_processed_markdown(SAMPLE_PROCESSED)
+    assert parsed is not None
+    assert parsed.cover_image == ""
+    covered = parse_processed_markdown(SAMPLE_PROCESSED_COVER)
+    assert covered is not None
+    assert covered.cover_image == "/image/article-cover.png"
+    figure_src = SAMPLE_PROCESSED.replace(
+        "封面提示词不要出现在正文",
+        '{{< figure src="/image/from-figure.png" caption="封面" >}}',
+    )
+    assert parse_processed_markdown(figure_src).cover_image == "/image/from-figure.png"
+
+
+def test_restyle_prepends_cover_block_before_body():
+    html = restyle_markdown(
+        SAMPLE_MD,
+        site_base_url="http://127.0.0.1:1314",
+        cover_image="/image/article-cover.png",
+    )
+    cover_at = html.index('class="wechat-cover"')
+    body_at = html.index("正文保持原意")
+    assert html.index('class="wechat-article"') < cover_at < body_at
+    assert "http://127.0.0.1:1314/image/article-cover.png" in html
+    assert COVER_HINT in html
+    assert "<hr>" in html[cover_at:body_at]
+    plain = restyle_markdown(SAMPLE_MD, site_base_url="http://127.0.0.1:1314")
+    assert 'class="wechat-cover"' not in plain
+    assert COVER_HINT not in plain
+
+
+def test_convert_wechat_includes_cover_from_processed(tmp_path: Path):
+    processed = tmp_path / "processed.md"
+    processed.write_text(SAMPLE_PROCESSED_COVER, encoding="utf-8")
+    preview = tmp_path / "preview"
+    settings = Settings(
+        hugo_root=tmp_path / "site",
+        hugo_deploy_dir=preview,
+        last_job_path=tmp_path / "last-job.json",
+        site_base_url="http://127.0.0.1:1314",
+    )
+    dump_last_job(
+        settings,
+        {
+            "processed_markdown_path": str(processed),
+            "featured_image": "/image/stale-cover.png",
+        },
+    )
+    result = convert_wechat(settings)
+    assert result.status == "ok"
+    page = (preview / "_wechat" / "zh-cn" / "hello-preview" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "http://127.0.0.1:1314/image/article-cover.png" in page
+    assert "stale-cover.png" not in page
+    assert 'class="wechat-cover"' in page
+    assert COVER_HINT in page
+    assert "复制封面图" in page
+
+
+def test_convert_wechat_uses_job_featured_image_when_prompt_only(tmp_path: Path):
+    processed = tmp_path / "processed.md"
+    processed.write_text(SAMPLE_PROCESSED, encoding="utf-8")
+    preview = tmp_path / "preview"
+    settings = Settings(
+        hugo_root=tmp_path / "site",
+        hugo_deploy_dir=preview,
+        last_job_path=tmp_path / "last-job.json",
+        site_base_url="http://127.0.0.1:1314",
+    )
+    dump_last_job(
+        settings,
+        {
+            "processed_markdown_path": str(processed),
+            "featured_image": "/image/job-cover.png",
+        },
+    )
+    result = convert_wechat(settings)
+    assert result.status == "ok"
+    page = (preview / "_wechat" / "zh-cn" / "hello-preview" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "http://127.0.0.1:1314/image/job-cover.png" in page
+    assert 'class="wechat-cover"' in page
+    assert "封面提示词不要出现在正文" not in page
 
 
 def test_convert_wechat_catalog_overwrites_same_slug(tmp_path: Path):
