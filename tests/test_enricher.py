@@ -6,7 +6,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from config import Settings
-from feishu.client import build_enrichment_xml, value_for_metadata_table
+from feishu.client import (
+    build_enrichment_xml,
+    extract_media_upload_token,
+    find_image_heading_block_id,
+    markdown_image_section_has_media,
+    value_for_metadata_table,
+)
 from last_job import dump_last_job, load_last_job
 from parser.doc_content import split_doc_content
 from parser.message import DocRef
@@ -22,6 +28,8 @@ from pipeline.enricher import (
     image_section_has_media,
     parse_metadata_json,
     prepend_enrichment_markdown,
+    resolve_cover_image_path,
+    stage_cover_image_for_jobs,
 )
 
 SAMPLE_TABLE = """
@@ -101,6 +109,86 @@ def test_image_section_has_media():
     assert image_section_has_media("# 图片\n\n![x](tok)\n\n# 正文")
     assert not image_section_has_media("# 图片\n\n仅有文字提示词\n\n# 正文")
     assert not image_section_has_media("正文\n\n![body](tok)\n无图片区")
+
+
+def test_markdown_image_section_has_media():
+    md = "# 属性\n\n# 图片\n\n![cover](cover.png)\n\n---\n\n# 正文"
+    assert markdown_image_section_has_media(md)
+    assert not markdown_image_section_has_media("# 图片\n\n仅提示词\n\n---")
+
+
+def test_find_image_heading_block_id():
+    xml = '<h1 id="img_h1">图片</h1><p id="x">x</p>'
+    assert find_image_heading_block_id(xml) == "img_h1"
+
+
+def test_build_enrichment_xml_pending_cover_image_emits_heading_only():
+    xml = build_enrichment_xml(
+        {
+            "slug": "demo-slug",
+            "lang": "zh",
+            "title": "标题",
+            "date": "2026-07-16",
+            "author": "内容编辑",
+            "categories": ["具身智能"],
+            "summary": "摘要",
+        },
+        pending_cover_image=True,
+    )
+    assert "<h1>图片</h1>" in xml
+    assert "<img" not in xml
+    assert "<hr/>" not in xml
+
+
+def test_build_enrichment_xml_uses_image_token_instead_of_prompt():
+    xml = build_enrichment_xml(
+        {
+            "slug": "demo-slug",
+            "lang": "zh",
+            "title": "标题",
+            "date": "2026-07-16",
+            "author": "内容编辑",
+            "categories": ["具身智能"],
+            "summary": "摘要",
+        },
+        cover_image_token="img_token_abc",
+    )
+    assert "<h1>图片</h1>" in xml
+    assert '<img src="img_token_abc"/>' in xml
+    assert "提示词" not in xml
+
+
+def test_extract_media_upload_token():
+    token = extract_media_upload_token({"data": {"file_token": "img_123"}})
+    assert token == "img_123"
+
+
+def test_resolve_cover_image_path(tmp_path: Path):
+    image = tmp_path / "cover.png"
+    image.write_bytes(b"png")
+    assert resolve_cover_image_path(str(image)) == image.resolve()
+    assert resolve_cover_image_path(tmp_path / "missing.png") is None
+
+
+def test_build_enrichment_markdown_embeds_local_cover_image():
+    md = build_enrichment_markdown(
+        dict(VALID_METADATA),
+        cover_image_relpath="cover-image.png",
+    )
+    assert "# 图片" in md
+    assert "![cover](cover-image.png)" in md
+    assert "---" in md
+
+
+def test_stage_cover_image_for_jobs(tmp_path: Path):
+    source = tmp_path / "generated.png"
+    source.write_bytes(b"png")
+    job_a = tmp_path / "jobs" / "a"
+    job_b = tmp_path / "jobs" / "b"
+    staged = stage_cover_image_for_jobs(source, [job_a, job_b])
+    assert staged[job_a] == "cover-image.png"
+    assert (job_a / "cover-image.png").is_file()
+    assert (job_b / "cover-image.png").is_file()
 
 
 def test_build_enrichment_xml_includes_table_hr_and_prompt():
@@ -214,7 +302,7 @@ def test_inspect_rejects_existing_metadata():
     result = Enricher(client=client).inspect_doc(DocRef(kind="docx", token="TokenOne"))
 
     assert result.status == "error"
-    assert "已有属性信息" in result.message
+    assert "云文档已有属性信息" in result.message
 
 
 def test_apply_success_without_images_writes_cover_prompt():
@@ -326,7 +414,7 @@ def test_apply_rejects_existing_metadata():
     )
 
     assert result.status == "error"
-    assert "已有属性信息" in result.message
+    assert "云文档已有属性信息" in result.message
     client.prepend_doc_enrichment.assert_not_called()
 
 
@@ -543,7 +631,7 @@ def test_apply_inconclusive_edit_probe_falls_back_to_local(tmp_path: Path):
     assert doc_already_has_metadata(processed.read_text(encoding="utf-8"))
 
 
-def test_apply_with_permission_also_updates_local(tmp_path: Path):
+def test_apply_with_permission_redownloads_after_cloud_write(tmp_path: Path):
     settings = _tmp_settings(tmp_path)
     work = Path(settings.jobs_dir) / "TokenOne"
     work.mkdir()
@@ -554,18 +642,50 @@ def test_apply_with_permission_also_updates_local(tmp_path: Path):
     client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
     client.has_doc_edit_permission.return_value = True
 
-    result = Enricher(client=client, settings=settings).apply_metadata(
-        DocRef(kind="docx", token="TokenOne"),
+    enricher = Enricher(client=client, settings=settings)
+    enricher._redownload_after_cloud_write = MagicMock(return_value=(True, "文档已重新下载"))
+    result = enricher.apply_metadata(
+        DocRef(kind="docx", token="TokenOne", url="https://example.feishu.cn/docx/TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
     )
 
     assert result.status == "enriched"
     assert result.wrote_cloud is True
+    assert result.redownloaded is True
     client.prepend_doc_enrichment.assert_called_once()
-    assert doc_already_has_metadata(processed.read_text(encoding="utf-8"))
+    enricher._redownload_after_cloud_write.assert_called_once()
+    assert processed.read_text(encoding="utf-8") == "正文：关于机器人的文章\n"
 
 
-def test_inspect_rejects_local_existing_metadata(tmp_path: Path):
+def test_apply_local_only_writes_cover_image(tmp_path: Path):
+    settings = _tmp_settings(tmp_path)
+    work = Path(settings.jobs_dir) / "TokenOne"
+    work.mkdir()
+    processed = work / "processed.md"
+    processed.write_text("正文：关于机器人的文章\n", encoding="utf-8")
+    cover = tmp_path / "cover.png"
+    cover.write_bytes(b"png")
+
+    client = MagicMock()
+    client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
+    client.has_doc_edit_permission.return_value = False
+
+    result = Enricher(client=client, settings=settings).apply_metadata(
+        DocRef(kind="docx", token="TokenOne"),
+        {**VALID_METADATA, "cover_prompt": "封面提示词"},
+        cover_image=str(cover),
+    )
+
+    assert result.status == "enriched"
+    assert result.wrote_cloud is False
+    client.prepend_doc_enrichment.assert_not_called()
+    processed_text = processed.read_text(encoding="utf-8")
+    assert "![cover](cover-image.png)" in processed_text
+    assert "封面提示词" not in processed_text
+    assert (work / "cover-image.png").is_file()
+
+
+def test_inspect_ignores_local_metadata_when_cloud_is_clean(tmp_path: Path):
     settings = _tmp_settings(tmp_path)
     work = Path(settings.jobs_dir) / "TokenOne"
     work.mkdir()
@@ -578,24 +698,36 @@ def test_inspect_rejects_local_existing_metadata(tmp_path: Path):
     result = Enricher(client=client, settings=settings).inspect_doc(
         DocRef(kind="docx", token="TokenOne")
     )
-    assert result.status == "error"
-    assert "本地已下载文档" in result.message
+    assert result.status == "ready"
+    assert "机器人" in result.article_text
 
 
-def test_apply_rejects_local_existing_metadata(tmp_path: Path):
+def test_apply_overwrites_stale_local_metadata_when_cloud_is_clean(tmp_path: Path):
     settings = _tmp_settings(tmp_path)
     work = Path(settings.jobs_dir) / "TokenOne"
     work.mkdir()
-    prefix = build_enrichment_markdown(dict(VALID_METADATA))
-    (work / "processed.md").write_text(prefix + "\n正文关于机器人\n", encoding="utf-8")
+    stale = build_enrichment_markdown({"slug": "old-slug", "lang": "zh", "title": "旧标题", "date": "2026-01-01", "author": "旧作者", "categories": "旧", "summary": "旧摘要"})
+    processed = work / "processed.md"
+    processed.write_text(stale + "\n正文关于机器人\n", encoding="utf-8")
+    (work / "raw.md").write_text(
+        "<title>飞书原标题</title>\n\n正文：关于机器人的文章",
+        encoding="utf-8",
+    )
 
     client = MagicMock()
     client.fetch_doc_markdown.return_value = ("正文：关于机器人的文章", "doxcn123")
+    client.has_doc_edit_permission.return_value = False
 
     result = Enricher(client=client, settings=settings).apply_metadata(
         DocRef(kind="docx", token="TokenOne"),
         {**VALID_METADATA, "cover_prompt": "封面提示词"},
     )
-    assert result.status == "error"
-    assert "本地已下载文档" in result.message
+
+    assert result.status == "enriched"
+    assert result.wrote_cloud is False
+    processed_text = processed.read_text(encoding="utf-8")
+    assert processed_text.count("# 属性") == 1
+    doc = split_doc_content(processed_text)
+    assert doc.metadata["slug"] == "demo-article"
+    assert "旧标题" not in processed_text
     client.prepend_doc_enrichment.assert_not_called()

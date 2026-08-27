@@ -1,12 +1,12 @@
 +++
-date = '2026-08-26T00:00:00+08:00'
+date = '2026-08-27T00:00:00+08:00'
 draft = false
 title = '具身智能：从思考到行动'
 translationKey = 'embodied-ai-from-thinking-to-action'
-categories = ['具身智能', '人形机器人']
-author = '内容编辑'
-summary = '具身智能强调智能体通过与物理世界交互来展现智能。本文介绍感知、运动控制、VLA 决策与仿真训练等核心技术，并对比 Optimus、Figure 02、宇树 G1、小鹏 IRON 等主流人形机器人。'
-featured_image = '/image/9900d3d1aaa87301.jpg'
+categories = ['具身智能', '人工智能']
+author = '小七'
+summary = '介绍具身智能的核心概念、技术栈、主流人形机器人对比及 VLA 模型应用，展望其在工业与家庭等场景的落地前景。'
+featured_image = '/image/3bae3dd42cfb0af3.png'
 +++
 
 # 一、什么是具身智能

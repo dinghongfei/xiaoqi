@@ -6,6 +6,7 @@ import html
 import json
 import logging
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -25,6 +26,11 @@ _ATTR_HEADING_RE = re.compile(
     r"<h1\b([^>]*)>\s*属性\s*</h1>",
     re.IGNORECASE,
 )
+_IMAGE_HEADING_RE = re.compile(
+    r"<h1\b([^>]*)>\s*图片\s*</h1>",
+    re.IGNORECASE,
+)
+_IMAGE_HEADING_MD_RE = re.compile(r"^#\s*图片\s*$", re.MULTILINE)
 _BLOCK_OPEN_RE = re.compile(r"<([a-zA-Z0-9_-]+)(\s[^>]*)?>", re.IGNORECASE)
 
 
@@ -184,6 +190,26 @@ def find_enrichment_block_ids(xml: str) -> list[str]:
     return ordered
 
 
+def find_image_heading_block_id(xml: str) -> str:
+    """Return block id of top-level h1「图片」, if present."""
+    match = _IMAGE_HEADING_RE.search(xml)
+    if not match:
+        return ""
+    return _block_id_from_attrs(match.group(1))
+
+
+def markdown_image_section_has_media(markdown: str) -> bool:
+    """True when the markdown「图片」section contains an embedded image."""
+    match = _IMAGE_HEADING_MD_RE.search(markdown or "")
+    if not match:
+        return False
+    rest = markdown[match.end() :]
+    next_heading = re.search(r"^#\s+\S+", rest, re.MULTILINE)
+    section = rest[: next_heading.start()] if next_heading else rest
+    lowered = section.lower()
+    return "![" in section or "<image" in lowered or "<img" in lowered
+
+
 def lang_for_metadata_table(lang: str) -> str:
     """Convert normalized Hugo lang back to user-facing zh/en for the table."""
     raw = (lang or "").strip().lower()
@@ -206,15 +232,44 @@ def value_for_metadata_table(field: str, value) -> str:
     return str(value) if value is not None else ""
 
 
+def extract_media_upload_token(payload: dict[str, Any]) -> str:
+    """Read file_token from docs +media-upload response."""
+    data = payload.get("data")
+    candidates: list[Any] = []
+    if isinstance(data, dict):
+        candidates.extend(
+            [
+                data.get("file_token"),
+                data.get("token"),
+            ]
+        )
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            candidates.extend(
+                [
+                    nested.get("file_token"),
+                    nested.get("token"),
+                ]
+            )
+    for item in candidates:
+        text = str(item or "").strip()
+        if text:
+            return text
+    raise FeishuAPIError("上传封面图失败：响应中缺少 file_token")
+
+
 def build_enrichment_xml(
     metadata: dict,
     *,
     cover_prompt: str | None = None,
+    cover_image_token: str | None = None,
     include_image_heading: bool = True,
+    pending_cover_image: bool = False,
 ) -> str:
-    """Build write-back XML: 属性(h1) → table → [图片(h1)? → prompt → hr].
+    """Build write-back XML: 属性(h1) → table → [图片(h1)? → image|prompt → hr].
 
-    横线只跟在封面提示词后面；已有封面图、不写提示词时，表格下方不写 hr。
+    When ``pending_cover_image`` is true, only emit the「图片」heading; the image
+    block is inserted separately and moved under that heading.
     """
     rows: list[str] = []
     for field in REQUIRED_METADATA_FIELDS:
@@ -238,8 +293,17 @@ def build_enrichment_xml(
         "</tbody>",
         "</table>",
     ]
+    image_token = (cover_image_token or "").strip()
     prompt = (cover_prompt or "").strip()
-    if prompt:
+    if pending_cover_image:
+        if include_image_heading:
+            parts.append("<h1>图片</h1>")
+    elif image_token:
+        if include_image_heading:
+            parts.append("<h1>图片</h1>")
+        parts.append(f'<img src="{_xml_escape(image_token)}"/>')
+        parts.append("<hr/>")
+    elif prompt:
         if include_image_heading:
             parts.append("<h1>图片</h1>")
         parts.append(f"<p>{_xml_escape(prompt)}</p>")
@@ -486,16 +550,152 @@ class FeishuClient:
             raise FeishuAPIError(f"文档 {document_id} XML 内容为空")
         return content
 
+    def _stage_cli_file(
+        self,
+        file_path: Path,
+        work_root: Path | None = None,
+    ) -> tuple[str, Path]:
+        from config import BOT_ROOT
+
+        path = Path(file_path).resolve()
+        if not path.is_file():
+            raise FeishuAPIError(f"封面图不存在：{path}")
+        root = (work_root or BOT_ROOT).resolve()
+        try:
+            return str(path.relative_to(root)), root
+        except ValueError:
+            staging = root / "data" / "tmp" / "cover-upload"
+            staging.mkdir(parents=True, exist_ok=True)
+            dest = staging / path.name
+            shutil.copy2(path, dest)
+            return str(dest.relative_to(root)), root
+
+    def _docs_update(
+        self,
+        page_id: str,
+        *,
+        command: str,
+        extra: list[str],
+        timeout: int = 180,
+    ) -> dict[str, Any]:
+        try:
+            payload = self.cli.run(
+                ["docs", "+update", "--doc", page_id, "--command", command, *extra],
+                timeout=timeout,
+            )
+        except LarkCliError as exc:
+            raise FeishuAPIError(str(exc)) from exc
+        ensure_docs_update_ok(payload)
+        return payload
+
+    def insert_doc_image_block(
+        self,
+        page_id: str,
+        file_path: Path,
+        *,
+        work_root: Path | None = None,
+    ) -> str:
+        """Insert an image block at document end; return its block_id."""
+        file_arg, root = self._stage_cli_file(file_path, work_root)
+        try:
+            payload = self.cli.run(
+                [
+                    "docs",
+                    "+media-insert",
+                    "--doc",
+                    page_id.strip(),
+                    "--file",
+                    file_arg,
+                    "--type",
+                    "image",
+                ],
+                cwd=root,
+                timeout=180,
+            )
+        except LarkCliError as exc:
+            raise FeishuAPIError(str(exc)) from exc
+        data = payload.get("data") or {}
+        block_id = data.get("block_id")
+        if not block_id:
+            raise FeishuAPIError("插入封面图失败：响应中缺少 block_id")
+        return str(block_id)
+
+    def _place_cover_image_under_heading(
+        self,
+        page_id: str,
+        *,
+        image_heading_block_id: str,
+        cover_image_path: Path,
+    ) -> None:
+        """Insert cover image and move it directly under h1「图片」, then append hr."""
+        image_block_id = self.insert_doc_image_block(page_id, cover_image_path)
+        self._docs_update(
+            page_id,
+            command="block_move_after",
+            extra=[
+                "--block-id",
+                image_heading_block_id,
+                "--src-block-ids",
+                image_block_id,
+            ],
+        )
+        self._docs_update(
+            page_id,
+            command="block_insert_after",
+            extra=[
+                "--block-id",
+                image_block_id,
+                "--doc-format",
+                "xml",
+                "--content",
+                "<hr/>",
+            ],
+        )
+
+    def upload_doc_image_token(
+        self,
+        document_id: str,
+        file_path: Path,
+        *,
+        work_root: Path | None = None,
+    ) -> str:
+        """Upload a local image for docx and return its file_token."""
+        page_id = document_id.strip()
+        if not page_id:
+            raise FeishuAPIError("无法上传封面图：缺少 document_id")
+        file_arg, root = self._stage_cli_file(file_path, work_root)
+        try:
+            payload = self.cli.run(
+                [
+                    "docs",
+                    "+media-upload",
+                    "--doc-id",
+                    page_id,
+                    "--parent-node",
+                    page_id,
+                    "--file",
+                    file_arg,
+                    "--parent-type",
+                    "docx_image",
+                ],
+                cwd=root,
+                timeout=180,
+            )
+        except LarkCliError as exc:
+            raise FeishuAPIError(str(exc)) from exc
+        return extract_media_upload_token(payload)
+
     def prepend_doc_enrichment(
         self,
         doc: str | DocRef,
         *,
         metadata: dict,
         cover_prompt: str | None = None,
+        cover_image_path: Path | None = None,
         document_id: str = "",
         include_image_heading: bool = True,
     ) -> None:
-        """Insert 属性/table/[图片/prompt/hr] at document start."""
+        """Insert 属性/table/[图片/image|prompt/hr] at document start."""
         doc_arg = doc_ref_url(doc) if isinstance(doc, DocRef) else doc
         page_id = document_id.strip()
         if not page_id:
@@ -503,33 +703,25 @@ class FeishuClient:
         if not page_id:
             raise FeishuAPIError(f"无法获取文档 ID：{doc_arg}")
 
+        use_cover_image = cover_image_path is not None
+        prompt = (cover_prompt or "").strip() or None
+        if use_cover_image:
+            prompt = None
+
         content = build_enrichment_xml(
             metadata,
-            cover_prompt=cover_prompt,
+            cover_prompt=prompt,
+            cover_image_token=None,
             include_image_heading=include_image_heading,
+            pending_cover_image=use_cover_image and include_image_heading,
         )
 
-        # 1) append at end, 2) move only the enrichment top-level blocks to page start.
-        # Never move nested table-cell ids — that empties the third column.
-        try:
-            append_payload = self.cli.run(
-                [
-                    "docs",
-                    "+update",
-                    "--doc",
-                    page_id,
-                    "--command",
-                    "append",
-                    "--doc-format",
-                    "xml",
-                    "--content",
-                    content,
-                ],
-                timeout=180,
-            )
-        except LarkCliError as exc:
-            raise FeishuAPIError(str(exc)) from exc
-        ensure_docs_update_ok(append_payload)
+        # 1) append at end, 2) move metadata blocks to page start.
+        self._docs_update(
+            page_id,
+            command="append",
+            extra=["--doc-format", "xml", "--content", content],
+        )
 
         try:
             after_xml = self.fetch_doc_xml_with_ids(page_id)
@@ -540,27 +732,25 @@ class FeishuClient:
         if not move_ids:
             raise FeishuAPIError("写回后未找到「属性」区块，无法移到文档顶部")
 
-        try:
-            move_payload = self.cli.run(
-                [
-                    "docs",
-                    "+update",
-                    "--doc",
-                    page_id,
-                    "--command",
-                    "block_move_after",
-                    "--block-id",
-                    page_id,
-                    "--src-block-ids",
-                    ",".join(move_ids),
-                ],
-                timeout=180,
+        self._docs_update(
+            page_id,
+            command="block_move_after",
+            extra=["--block-id", page_id, "--src-block-ids", ",".join(move_ids)],
+        )
+
+        if use_cover_image:
+            try:
+                positioned_xml = self.fetch_doc_xml_with_ids(page_id)
+            except Exception as exc:
+                raise FeishuAPIError(f"移动元数据后校验拉取失败：{exc}") from exc
+            image_heading_id = find_image_heading_block_id(positioned_xml)
+            if not image_heading_id:
+                raise FeishuAPIError("写回后未找到「图片」标题，无法插入封面图")
+            self._place_cover_image_under_heading(
+                page_id,
+                image_heading_block_id=image_heading_id,
+                cover_image_path=cover_image_path,
             )
-        except LarkCliError as exc:
-            raise FeishuAPIError(
-                f"内容已写入但移到文档顶部失败：{exc}"
-            ) from exc
-        ensure_docs_update_ok(move_payload)
 
         slug = value_for_metadata_table("slug", metadata.get("slug", ""))
         try:
@@ -573,9 +763,12 @@ class FeishuClient:
             missing.append("标题「属性」")
         if slug and slug not in verify_md:
             missing.append(f"表格值 slug={slug}")
-        if cover_prompt and cover_prompt.strip() and cover_prompt.strip() not in verify_md:
+        if use_cover_image:
+            if not markdown_image_section_has_media(verify_md):
+                missing.append("封面图（图片标题下）")
+        elif cover_prompt and cover_prompt.strip() and cover_prompt.strip() not in verify_md:
             missing.append("封面图提示词")
-        if cover_prompt and "---" not in verify_md.splitlines()[:120]:
+        if (use_cover_image or cover_prompt) and "---" not in verify_md.splitlines()[:120]:
             missing.append("分隔线 ---")
         if missing:
             logger.error(

@@ -62,6 +62,8 @@ def _load_apply_payload(args: argparse.Namespace) -> dict:
             data[field] = value
     if args.cover_prompt.strip():
         data["cover_prompt"] = args.cover_prompt.strip()
+    if args.cover_image.strip():
+        data["cover_image"] = args.cover_image.strip()
     return data
 
 
@@ -92,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser.add_argument("--categories", default="")
     apply_parser.add_argument("--summary", default="")
     apply_parser.add_argument("--cover-prompt", default="")
+    apply_parser.add_argument("--cover-image", default="", help="本地封面图路径（能生成图片时传入，将上传图片而非提示词）")
     apply_parser.add_argument("--json", dest="metadata_json", default="")
     apply_parser.add_argument("--json-file", default="")
 
@@ -122,7 +125,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"❌ {exc}")
         return 1
 
-    result = enricher.apply_metadata(ref, payload)
+    result = enricher.apply_metadata(
+        ref,
+        payload,
+        cover_prompt=args.cover_prompt,
+        cover_image=args.cover_image,
+    )
     print(result.message or "补全完成。")
     if result.doc_url:
         print(result.doc_url)

@@ -70,7 +70,7 @@ flowchart LR
 ```bash
 uv run python skills/download-feishu-doc/scripts/run.py --url '…'
 uv run python skills/enrich-doc/scripts/run.py inspect --url '…'
-uv run python skills/enrich-doc/scripts/run.py apply --url '…' --slug … --lang zh --title '…' --date YYYY-MM-DD --author '内容编辑' --categories '…' --summary '…'
+uv run python skills/enrich-doc/scripts/run.py apply --url '…' --slug … --lang zh --title '…' --date YYYY-MM-DD --author '小七' --categories '…' --summary '…' [--cover-prompt '…' | --cover-image /path/to/cover.png]
 uv run python skills/convert-website/scripts/run.py
 uv run python skills/compress-media/scripts/run.py
 uv run python skills/deploy-local/scripts/run.py

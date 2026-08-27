@@ -4,6 +4,6 @@ draft = false
 title = '{{ replace .File.ContentBaseName "-" " " | title }}'
 translationKey = '{{ .File.ContentBaseName }}'
 categories = ['demo']
-author = '内容编辑'
+author = '小七'
 summary = ''
 +++

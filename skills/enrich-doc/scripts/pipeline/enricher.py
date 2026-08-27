@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -59,7 +61,8 @@ _ATX_H1_LINE = re.compile(r"^#[^#\n](.*)$")
 _ENRICHMENT_H1 = frozenset({"属性", "图片"})
 
 ARTICLE_TEXT_MAX = 20000
-DEFAULT_AUTHOR = "内容编辑"
+DEFAULT_AUTHOR = "小七"
+LOCAL_COVER_FILENAME = "cover-image"
 
 
 @dataclass
@@ -102,6 +105,54 @@ class EnrichResult:
     doc_url: str = ""
     wrote_cloud: bool = False
     local_paths: list[str] = field(default_factory=list)
+    redownloaded: bool = False
+
+
+def resolve_cover_image_path(value: str | Path | None) -> Path | None:
+    """Return an existing local cover image path when provided."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    path = Path(text).expanduser()
+    if not path.is_file():
+        return None
+    return path.resolve()
+
+
+def _resolve_uv_bin() -> str:
+    import os
+    import shutil as _shutil
+
+    override = (os.environ.get("UV_BIN") or "").strip()
+    if override:
+        return str(Path(override).expanduser())
+    found = _shutil.which("uv")
+    if found:
+        return found
+    home = Path.home()
+    for candidate in (home / ".local" / "bin" / "uv", home / ".cargo" / "bin" / "uv"):
+        if candidate.is_file():
+            return str(candidate)
+    return "uv"
+
+
+def _local_cover_filename(source: Path) -> str:
+    suffix = source.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        return f"{LOCAL_COVER_FILENAME}{suffix}"
+    return f"{LOCAL_COVER_FILENAME}.png"
+
+
+def stage_cover_image_for_jobs(cover_image_path: Path, job_dirs: list[Path]) -> dict[Path, str]:
+    """Copy cover image into each job dir; return job_dir -> relative filename."""
+    mapping: dict[Path, str] = {}
+    filename = _local_cover_filename(cover_image_path)
+    for job_dir in job_dirs:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        dest = job_dir / filename
+        shutil.copy2(cover_image_path, dest)
+        mapping[job_dir] = filename
+    return mapping
 
 
 def default_date_cst() -> str:
@@ -194,6 +245,7 @@ def build_enrichment_markdown(
     metadata: dict,
     *,
     cover_prompt: str | None = None,
+    cover_image_relpath: str | None = None,
     include_image_heading: bool = True,
 ) -> str:
     """Markdown equivalent of the Feishu 属性 table, parseable by split_doc_content."""
@@ -203,8 +255,13 @@ def build_enrichment_markdown(
         hint = DEFAULT_FIELD_HINTS.get(field, field)
         rows.append(f"| {_md_cell(field)} | {_md_cell(hint)} | {_md_cell(value)} |")
     parts = ["# 属性", "", *rows, ""]
+    image_ref = (cover_image_relpath or "").strip()
     prompt = (cover_prompt or "").strip()
-    if prompt:
+    if image_ref:
+        if include_image_heading:
+            parts.extend(["# 图片", ""])
+        parts.extend([f"![cover]({image_ref})", ""])
+    elif prompt:
         if include_image_heading:
             parts.extend(["# 图片", ""])
         parts.extend([prompt, ""])
@@ -307,21 +364,36 @@ def find_local_markdown_files(
     return paths
 
 
-def local_doc_already_has_metadata(
-    settings: Settings | None,
-    doc_ref: DocRef,
+def _body_for_local_enrichment(
+    located: list[Path],
+    existing_processed: str,
     *,
-    document_id: str = "",
-) -> bool:
-    for path in find_local_markdown_files(
-        settings, doc_ref, document_id=document_id, include_raw=False
-    ):
-        try:
-            if doc_already_has_metadata(path.read_text(encoding="utf-8")):
-                return True
-        except OSError:
+    doc_title: str = "",
+) -> str:
+    """Pick article body for local enrich; prefer raw.md (cloud download) over stale processed."""
+    for path in located:
+        if path.name != "raw.md":
             continue
-    return False
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            break
+        text = feishu_title_tag_to_atx_h1(raw or "")
+        title = (doc_title or "").strip() or extract_feishu_doc_title(raw or "")
+        stripped = text.lstrip()
+        first_h1, rest = _split_leading_doc_title_h1(stripped)
+        if title:
+            heading_text = first_h1.lstrip("#").strip() if first_h1 else ""
+            body = rest if heading_text == title else stripped
+            return f"# {title}\n\n{body.lstrip()}" if body.strip() else f"# {title}\n"
+        return f"{first_h1}{rest}" if first_h1 else stripped
+
+    if doc_already_has_metadata(existing_processed):
+        try:
+            return split_doc_content(existing_processed).body
+        except MetadataError:
+            pass
+    return existing_processed
 
 
 class Enricher:
@@ -351,6 +423,7 @@ class Enricher:
         document_id: str,
         metadata: dict,
         cover_prompt: str,
+        cover_image_path: Path | None = None,
         include_image_heading: bool,
     ) -> list[Path]:
         located = find_local_markdown_files(
@@ -368,19 +441,28 @@ class Enricher:
         paths = [path for path in located if path.name == "processed.md"]
         if not paths:
             return []
+
+        cover_image_relpath = ""
+        if cover_image_path is not None:
+            job_dirs = sorted({path.parent for path in paths})
+            staged = stage_cover_image_for_jobs(cover_image_path, job_dirs)
+            cover_image_relpath = staged.get(paths[0].parent, _local_cover_filename(cover_image_path))
+
         prefix = build_enrichment_markdown(
             metadata,
             cover_prompt=cover_prompt or None,
+            cover_image_relpath=cover_image_relpath or None,
             include_image_heading=include_image_heading,
         )
         written: list[Path] = []
         for path in paths:
             existing = path.read_text(encoding="utf-8")
-            if doc_already_has_metadata(existing):
-                continue
-            updated = prepend_enrichment_markdown(
-                existing, prefix, doc_title=raw_title
+            body = _body_for_local_enrichment(
+                located,
+                existing,
+                doc_title=raw_title,
             )
+            updated = prepend_enrichment_markdown(body, prefix, doc_title=raw_title)
             tmp = path.with_name(path.name + ".tmp")
             tmp.write_text(updated, encoding="utf-8")
             tmp.replace(path)
@@ -405,6 +487,56 @@ class Enricher:
                 labels.append(str(path))
         return labels
 
+    def _redownload_after_cloud_write(self, doc_ref: DocRef) -> tuple[bool, str]:
+        """Re-download the doc so local copies match the cloud document."""
+        if self.settings is None:
+            return False, "未配置工作区，无法重新下载"
+
+        from config import BOT_ROOT
+
+        url = (doc_ref.url or "").strip()
+        if not url:
+            job = load_last_job(self.settings)
+            if job:
+                url = str(job.get("doc_url") or "").strip()
+        if not url:
+            return False, "缺少文档 URL，无法重新下载"
+
+        script = BOT_ROOT / "skills" / "download-feishu-doc" / "scripts" / "run.py"
+        if not script.is_file():
+            return False, f"未找到下载脚本：{script}"
+
+        cmd = [
+            _resolve_uv_bin(),
+            "run",
+            "python",
+            str(script),
+            "--url",
+            url,
+            "--root",
+            str(BOT_ROOT),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(BOT_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.exception("Re-download after enrich failed [%s]", doc_ref.label)
+            return False, f"重新下载失败：{exc}"
+
+        output = "\n".join(
+            line for line in (proc.stdout or "", proc.stderr or "") if line.strip()
+        ).strip()
+        if proc.returncode != 0:
+            message = output.splitlines()[-1] if output else f"退出码 {proc.returncode}"
+            return False, f"重新下载失败：{message}"
+        return True, output.splitlines()[0] if output else "文档已重新下载"
+
     def inspect_doc(self, doc_ref: DocRef) -> InspectResult:
         label = doc_ref.label
         doc_url = (doc_ref.url or "").strip()
@@ -422,16 +554,7 @@ class Enricher:
         if doc_already_has_metadata(raw):
             return InspectResult(
                 status="error",
-                message=f"❌ [{label}] 已有属性信息，无需补全",
-                doc_url=doc_url,
-            )
-
-        if local_doc_already_has_metadata(
-            self.settings, doc_ref, document_id=document_id
-        ):
-            return InspectResult(
-                status="error",
-                message=f"❌ [{label}] 本地已下载文档已有属性信息，无需补全",
+                message=f"❌ [{label}] 云文档已有属性信息，无需补全",
                 doc_url=doc_url,
             )
 
@@ -461,6 +584,7 @@ class Enricher:
         data: dict,
         *,
         cover_prompt: str = "",
+        cover_image: str | Path | None = None,
     ) -> EnrichResult:
         label = doc_ref.label
         doc_url = (doc_ref.url or "").strip()
@@ -482,18 +606,7 @@ class Enricher:
                 slug="",
                 lang="",
                 status="error",
-                message=f"❌ [{label}] 已有属性信息，无需补全",
-                doc_url=doc_url,
-            )
-
-        if local_doc_already_has_metadata(
-            self.settings, doc_ref, document_id=document_id
-        ):
-            return EnrichResult(
-                slug="",
-                lang="",
-                status="error",
-                message=f"❌ [{label}] 本地已下载文档已有属性信息，无需补全",
+                message=f"❌ [{label}] 云文档已有属性信息，无需补全",
                 doc_url=doc_url,
             )
 
@@ -511,17 +624,24 @@ class Enricher:
         need_cover = not image_section_has_media(raw)
         payload = dict(data)
         prompt = (cover_prompt or str(payload.pop("cover_prompt", "") or "")).strip()
+        cover_image_path = resolve_cover_image_path(
+            cover_image or payload.pop("cover_image", "") or payload.pop("cover_image_path", "")
+        )
         if need_cover:
-            if not prompt:
+            if cover_image_path is None and not prompt:
                 return EnrichResult(
                     slug="",
                     lang="",
                     status="error",
-                    message=f"❌ [{label}] 缺少封面图提示词 cover_prompt",
+                    message=(
+                        f"❌ [{label}] 缺少封面：请提供 cover_prompt，"
+                        "或在能生成图片时传入 --cover-image"
+                    ),
                     doc_url=doc_url,
                 )
         else:
             prompt = ""
+            cover_image_path = None
 
         try:
             metadata = validate_metadata_fields(payload)
@@ -534,15 +654,18 @@ class Enricher:
                 doc_url=doc_url,
             )
 
-        include_image_heading = bool(prompt) and not has_image_heading
+        include_image_heading = bool(cover_image_path or prompt) and not has_image_heading
+        local_cover_prompt = "" if cover_image_path is not None else prompt
         can_edit = self._probe_can_edit(doc_ref, document_id)
         wrote_cloud = False
+        redownloaded = False
         if can_edit is not False:
             try:
                 self.client.prepend_doc_enrichment(
                     doc_ref,
                     metadata=metadata,
-                    cover_prompt=prompt or None,
+                    cover_prompt=local_cover_prompt or None,
+                    cover_image_path=cover_image_path,
                     document_id=document_id,
                     include_image_heading=include_image_heading,
                 )
@@ -564,7 +687,24 @@ class Enricher:
                     )
 
         written_local: list[Path] = []
-        if not wrote_cloud or find_local_markdown_files(
+        redownload_message = ""
+        if wrote_cloud:
+            ok, redownload_message = self._redownload_after_cloud_write(doc_ref)
+            redownloaded = ok
+            if ok:
+                written_local = find_local_markdown_files(
+                    self.settings,
+                    doc_ref,
+                    document_id=document_id,
+                    include_raw=False,
+                )
+            elif self.settings is not None:
+                logger.warning(
+                    "Enrich cloud write ok but re-download failed [%s]: %s",
+                    label,
+                    redownload_message,
+                )
+        elif find_local_markdown_files(
             self.settings, doc_ref, document_id=document_id
         ):
             try:
@@ -572,29 +712,33 @@ class Enricher:
                     doc_ref,
                     document_id=document_id,
                     metadata=metadata,
-                    cover_prompt=prompt,
+                    cover_prompt=local_cover_prompt,
+                    cover_image_path=cover_image_path,
                     include_image_heading=include_image_heading,
                 )
             except Exception as e:
                 logger.exception("Enrich local write failed [%s]: %s", label, e)
-                if not wrote_cloud:
-                    return EnrichResult(
-                        slug=metadata.get("slug", ""),
-                        lang=metadata.get("lang", ""),
-                        status="error",
-                        message=f"❌ [{label}] 写入本地已下载文档失败：{e}",
-                        metadata=metadata,
-                        cover_prompt=prompt,
-                        doc_url=doc_url,
-                    )
+                return EnrichResult(
+                    slug=metadata.get("slug", ""),
+                    lang=metadata.get("lang", ""),
+                    status="error",
+                    message=f"❌ [{label}] 写入本地已下载文档失败：{e}",
+                    metadata=metadata,
+                    cover_prompt=prompt,
+                    doc_url=doc_url,
+                )
 
         local_labels = self._local_path_labels(written_local)
         if wrote_cloud:
-            message = (
-                f"补全完成（已写回飞书云文档，并更新本地已下载文档 {', '.join(local_labels)}）。"
-                if local_labels
-                else ""
-            )
+            if redownloaded:
+                message = (
+                    f"补全完成（已写回飞书云文档，并重新下载同步本地文档"
+                    f"{('：' + ', '.join(local_labels)) if local_labels else ''}）。"
+                )
+            else:
+                message = (
+                    f"补全完成（已写回飞书云文档，但重新下载失败：{redownload_message}）。"
+                )
             return EnrichResult(
                 slug=metadata.get("slug", ""),
                 lang=metadata.get("lang", ""),
@@ -605,6 +749,7 @@ class Enricher:
                 doc_url=doc_url,
                 wrote_cloud=True,
                 local_paths=local_labels,
+                redownloaded=redownloaded,
             )
 
         if local_labels:

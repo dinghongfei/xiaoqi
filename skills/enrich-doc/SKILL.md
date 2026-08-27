@@ -34,20 +34,31 @@ enrich-doc/
 ```mermaid
 flowchart LR
   inspect[enrich-doc inspect] --> gen[Agent 生成字段]
-  gen --> apply[enrich-doc apply]
-  apply --> perm{有编辑权限?}
+  gen --> img{能生成封面图?}
+  img -->|是| genimg[生图]
+  img -->|否| applyPrompt[apply + cover-prompt]
+  genimg --> applyImg[apply + cover-image]
+  applyPrompt --> perm{有编辑权限?}
+  applyImg --> perm
   perm -->|是| cloud[回写云文档]
   perm -->|否| local[只写本地已下载文档]
-  cloud --> rp[reply-preview]
+  cloud --> redl[重新 download-feishu-doc]
+  redl --> rp[reply-preview]
   local --> rp
 ```
 
 ```bash
 uv run python <本Skill目录>/scripts/run.py inspect --url 'https://xxx.feishu.cn/docx/TOKEN'
+# 不能生图时：
 uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn/docx/TOKEN' \
   --slug demo-article --lang zh --title '标题' --date 2026-08-22 \
-  --author '内容编辑' --categories '具身智能' --summary '摘要' \
+  --author '小七' --categories '具身智能' --summary '摘要' \
   --cover-prompt '封面提示词'
+# 能生图时（先用提示词生成图片，再传本地路径）：
+uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn/docx/TOKEN' \
+  --slug demo-article --lang zh --title '标题' --date 2026-08-22 \
+  --author '小七' --categories '具身智能' --summary '摘要' \
+  --cover-image '/path/to/cover.png'
 ```
 
 `inspect` 成功时标准输出是 JSON（含 `article_text`、`doc_title`、`need_cover_prompt`、`default_date`、`can_edit` 等）。失败则打印中文原因并退出码 1，此时不要 apply。`can_edit` 为 `true` / `false` / `null`（探测不到时为 `null`）。为 `false` 且还没下载时，先跑 `download-feishu-doc` 再 apply。
@@ -71,19 +82,22 @@ uv run python <本Skill目录>/scripts/run.py apply --url 'https://xxx.feishu.cn
 2. **title** 结合 `doc_title`（飞书文档标题）与正文。若 `doc_title` 非空、与主题高度吻合且语言一致，则直接用它（可只做空白/标点规范化）。否则按正文总结一个简洁准确的 title，语言与正文一致。
 3. **slug** 英文 kebab-case（小写字母、数字、连字符），必须能从 title 的核心主题联想到；中文 title 用意译英文词，英文 title 提炼关键词。不要用与 title 无关的泛化词。
 4. **date** `YYYY-MM-DD`，不得晚于今天。正文无明显日期时用 inspect 里的 `default_date`。
-5. **author** 默认「内容编辑」（inspect 的 `default_author`）；正文明确写了作者则用正文作者。英文稿未写作者时仍可用「内容编辑」。
+5. **author** 默认「小七」（inspect 的 `default_author`）；正文明确写了作者则用正文作者。英文稿未写作者时仍可用「小七」。
 6. **categories** 1～3 个。中文稿用中文分类、中文逗号「，」分隔；英文稿用英文分类、英文逗号 `", "` 分隔。
 7. **summary** 约 100 字/词以内，概括核心，语言与正文一致。
-8. 若 `need_cover_prompt` 为 true：必须给 `--cover-prompt`（画面主体、风格、色调；语言与正文一致；不要出现网址）。为 false 时不要传封面提示词。
+8. 若 `need_cover_prompt` 为 true：
+  - **能生图**：先用 `cover_prompt` 生图，再 `apply --cover-image /path/to/image`（封面插入「图片」标题正下方，不是文档末尾）
+   - **不能生图**：`apply --cover-prompt '…'`（「图片」区写提示词）
+   为 false 时不要传封面图或封面提示词。
 
 `doc_title` 与正文语言不一致时，以正文语言为准。
 
 ## 行为
 
-- `inspect`：拉文档；云文档或本地已下载文档已有可解析属性表则拒绝；几乎没有文字则拒绝。JSON 里带 `can_edit`。
-- `apply`：再次拉文档做同样检查，校验字段后：
-  - **有编辑权限**：写回云文档顶部（属性标题 + 三列表格 + 可选图片提示词）；若本地已下载则同步写入 `processed.md`，不改 `raw.md`。
-  - **没有编辑权限**：不回写云文档，只把属性表写入本地 `processed.md`。`processed.md` 结构为：第一行是由 `raw.md` 开头 `<title>` 转成的 markdown 一级标题，下面是属性/图片，再然后是文章正文。`raw.md` 保持下载原文。
+- `inspect`：拉取云文档；**仅以云文档**判断是否已有可解析属性表（不看本地 `processed.md`）；几乎没有文字则拒绝。JSON 里带 `can_edit`。
+- `apply`：再次拉取云文档做同样检查，校验字段后：
+  - **有编辑权限**：写回云文档顶部（属性标题 + 三列表格 + 可选「图片」区）。能生图时「图片」区只插入封面图；否则写封面提示词。写回成功后**必须**重新运行 `download-feishu-doc`，保证本地与线上一致（apply 会自动触发）。
+  - **没有编辑权限**：不回写云文档，只把属性表写入本地 `processed.md`（能生图则本地「图片」区引用复制的封面图，否则写提示词）。`raw.md` 保持下载原文。
   - **没有编辑权限且尚未下载**：失败，提示先 `download-feishu-doc`。
 - 正文插图不算封面：仅当「图片」区已有图时才跳过封面提示词。
 - 不写 Hugo、不压缩、不部署。
